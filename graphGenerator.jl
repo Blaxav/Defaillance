@@ -23,6 +23,15 @@ catch
 end
 
 #########################################################################################
+# Network type
+#########################################################################################
+struct Network
+    N::Int # Both the number of nodes and their indices
+    positions::Vector{Tuple{Int, Int}} # Positions of the nodes on a map
+    edges::Vector{Tuple{Int, Int}} # list of undirected edges
+end
+
+#########################################################################################
 #########################################################################################
 function help()
     println("Possible options : ")
@@ -30,7 +39,11 @@ function help()
     opt_dict = Dict(
         "-h, ?"                 => "display help",
         "--install-packages"    => "install recquired packages",
-        "--compile"             => "Use PackageCompiler to compile Plot.jl library to largely improve perfs with the use of 'julia --sysimage sys_plots.so'"
+        "--compile"             => "Use PackageCompiler to compile Plot.jl library to largely improve perfs with the use of 'julia --sysimage sys_plots.so'",
+        "-N"                    => "Number of node of the graph",
+        "--seed"                => "Random seed, a negative seed leads to pure random",
+        "-d"                    => "Graph density to reach",
+        "-p"                    => "Proportion of node on the map : caracterized the size of the map"
     )
    
     for opt in keys(opt_dict)
@@ -163,11 +176,11 @@ Args:
 Returns:
     nothing
 """
-function remove_edge_to_density!(N, edges, density; max_try=100)
+function remove_edge_to_density!(N, edges, recquired_density; max_try=100)
     
     successive_fail = 0
     current_density = 100*2*length(edges) / (N*(N-1))
-    while current_density > density
+    while current_density > recquired_density
         
         successive_fail = 0
         
@@ -181,7 +194,7 @@ function remove_edge_to_density!(N, edges, density; max_try=100)
             successive_fail += 1
 
             if successive_fail == max_try
-                println("Could not reach density ", density, "%, final density = ", current_density, "%.")
+                println("Could not reach density ", recquired_density, "%, final density = ", current_density, "%.")
                 return nothing
             end            
 
@@ -194,10 +207,53 @@ function remove_edge_to_density!(N, edges, density; max_try=100)
         current_density = 100*2*length(edges) / (N*(N-1))
     end
 
-    if current_density > density
+    if current_density > recquired_density
         println("Could not reach density ", density, "%, final density = ", current_density, "%.")
     end
     return nothing
+end
+
+
+"""
+function create_network
+Brief: Creates a random network graph
+Args:
+    N: number of nodes
+    graph_density: percentage of arcs (100 meaning the complete graph)
+    seed: random seed for reproductibility
+    gridRatio: ratio between X length and Y length for the map on which points are sampled
+    proportion: proportion of the points of the map on which there will be nodes, caracterized the size of the map
+    drawGraph: bool to draw the graph in an external pdf file
+Returns:
+    postitions, edges
+"""
+function create_network(N, graph_density, seed; gridRatio = 1.5, proportion=0.005, drawGraph = true, plotGraph = false)
+    
+    seed >= 0 ? Random.seed!(seed) : nothing
+
+    # Sample positions of the nodes on a map
+    positions, distances = sample_positions(N)
+    edges = sample_edges_to_connexity(N, positions, distances)
+    remove_edge_to_density!(N, edges, graph_density)
+
+    if drawGraph == true || plotGraph == true
+        graph_plot_final = plot(positions, seriestype = :scatter, showaxis = false, grid = false, ticks = false, legend = false)
+        for (i,j) in edges
+            plot!([positions[i][1], positions[j][1]], [positions[i][2], positions[j][2]])
+        end
+
+        if plotGraph == true
+            display(graph_plot_final)
+            println("Press a key to continue")
+            readline()
+        end
+
+        if drawGraph == true
+            savefig(graph_plot_final, "graph.pdf")
+        end
+    end
+
+    return Network(N, positions, edges)
 end
 
 #########################################################################################
@@ -209,48 +265,24 @@ function main()
         help()
     end
 
-    vec = [0, 1, 2, 3, 4, 5, 6]
-    println("Item ? ", deleteat!(vec, 3))
-    println(vec)
-
     N = 100
-    density = 2.5
+    graph_density = 2.5
+    seed = -1
     for i in 1:length(ARGS)
         if ARGS[i] == "-N"
             N = parse(Int, ARGS[i+1])
         elseif ARGS[i] == "-d"
-            density = parse(Float64, ARGS[i+1])
+            graph_density = parse(Float64, ARGS[i+1])
         elseif ARGS[i] == "-p"
             proportion = parse(Float64, ARGS[i+1])
         elseif ARGS[i] == "--seed"
-            Random.seed!(parse(Int, ARGS[i+1]))
+            seed = parse(Int, ARGS[i+1])
         end
     end
-    
-    positions, distances = sample_positions(N)
-    edges = sample_edges_to_connexity(N, positions, distances)
-
-    # Plotting the initial graph
-    graph_plot_init = plot(positions, seriestype = :scatter, showaxis = false, grid = false, ticks = false, legend = false)
-    for (i,j) in edges
-        plot!([positions[i][1], positions[j][1]], [positions[i][2], positions[j][2]])
-    end
-    println("Density : ", 100*2*length(edges) / (N*(N-1)))
-
-    # Removing edges
-    remove_edge_to_density!(N, edges, density)
-
-    # Plotting the final graph
-    graph_plot_final = plot(positions, seriestype = :scatter, showaxis = false, grid = false, ticks = false, legend = false)
-    for (i,j) in edges
-        plot!([positions[i][1], positions[j][1]], [positions[i][2], positions[j][2]])
-    end
-    println("Density : ", 100*2*length(edges) / (N*(N-1)))
-
-    display(graph_plot_final)
-    println("Press a key to continue")
-    readline()
-    savefig(graph_plot_final, "graph.pdf")
+    println("coucou")
+    create_network(N, graph_density, seed, plotGraph = true, drawGraph = false)
 end
 
-main()
+if PROGRAM_FILE == "graphGenerator.jl"
+    main()
+end
