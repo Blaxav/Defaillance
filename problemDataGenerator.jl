@@ -24,7 +24,6 @@ catch
 end
 
 include("graphGenerator.jl")
-include("bilevProbGen.jl")
 
 ##################################################################################################
 # Network investment problem class
@@ -37,19 +36,21 @@ struct NetworkFlowProblemData
     network::Network
     demands::Vector{Float64}
     has_production::Vector{Int}
-    def_cost::Int
+    _cost::Int
     prod_cost::Dict{Int,Float64}
     epsilon_flow::Float64
 end
+
+
 
 """
 function sample_network_data
     brief: Generates a random vector of NetworkFlowProblemData for each scenario
 """
 function sample_network_data(scenarios, network, demand_range, 
-    prod_cost_range, def_cost, epsilon_flow)
+    prod_cost_range, unsupplied_cost, epsilon_flow)
 
-    data_flow = Vector{NetworkFlowProblemData}(undef, scenarios)
+    data_flow = Vector{NetworkFlowProblemData}(ununsupplied, scenarios)
     for s in 1:scenarios
 
         demands = rand(demand_range, network.N)
@@ -62,7 +63,7 @@ function sample_network_data(scenarios, network, demand_range,
             ))
 
         data_flow[s] = NetworkFlowProblemData(network, demands, 
-            has_production, def_cost, prod_cost, epsilon_flow)
+            has_production, unsupplied_cost, prod_cost, epsilon_flow)
     end
     return data_flow
 end
@@ -88,7 +89,7 @@ function create_invest_optim_problem(network, scenarios, proba, data_flow, inves
         data_flow[s].has_production[n] == 1])
 
     # Loss of load variables
-    @variable(model, 0 <= def[s = 1:scenarios, i in 1:network.N])
+    @variable(model, 0 <= unsupplied[s = 1:scenarios, i in 1:network.N])
 
     # Flow bounds
     invest_init = 5
@@ -101,7 +102,7 @@ function create_invest_optim_problem(network, scenarios, proba, data_flow, inves
         sum(flot[s,n,i] for i in 1:network.N if (n,i) in network.edges) - 
         sum(flot[s,i,n] for i in 1:network.N if (i,n) in network.edges) + 
         (data_flow[s].has_production[n] == 1 ? prod[s,n] : 0) + 
-        def[s,n] == data_flow[s].demands[n]
+        unsupplied[s,n] == data_flow[s].demands[n]
         )
     
     # Constraint to lead heuristic
@@ -111,7 +112,7 @@ function create_invest_optim_problem(network, scenarios, proba, data_flow, inves
 
     @objective(model, Min, 
         sum(proba[s] * prod[s,n] * data_flow[s].prod_cost[n] for s in 1:scenarios, n in 1:network.N if data_flow[s].has_production[n] == 1) +
-        sum(sum((proba[s] * data_flow[s].def_cost) .* def[s,:]) for s in 1:scenarios) +
+        sum(sum((proba[s] * data_flow[s].unsupplied_cost) .* unsupplied[s,:]) for s in 1:scenarios) +
         sum(proba[s] * data_flow[s].epsilon_flow * flot[s,i,j] for s in 1:scenarios, (i,j) in network.edges) + 
         sum(invest_flow_cost[i,j] * invest_flow[i,j] for (i,j) in network.edges)
         )
@@ -120,11 +121,11 @@ function create_invest_optim_problem(network, scenarios, proba, data_flow, inves
 end
 
 """
-function counting_def_scenario
+function counting_unsupplied_scenario
     brief: Computes the number of nodes which loss of load for a given scenario after optimization
 """
-function counting_def_scenario(model, scenario)
-    return sum([ value(variable_by_name(model,"def[$scenario,$n]")) > 0 ? 1 : 0 for n in 1:network.N])
+function counting_unsupplied_scenario(model, scenario)
+    return sum([ value(variable_by_name(model,"unsupplied[$scenario,$n]")) > 0 ? 1 : 0 for n in 1:network.N])
 end
 
 """
@@ -146,7 +147,7 @@ function crate_kkt_bilevel_problem(network, scenarios, proba, data_flow, invest_
     @variable(Lower(model), 0 <= prod[s = 1:scenarios, n in 1:network.N; 
         data_flow[s].has_production[n] == 1])
     # Loss of load variables
-    @variable(Lower(model), 0 <= def[s = 1:scenarios, i in 1:network.N])
+    @variable(Lower(model), 0 <= unsupplied[s = 1:scenarios, i in 1:network.N])
 
     ## Primal constraints
     ## ----------------
@@ -161,25 +162,25 @@ function crate_kkt_bilevel_problem(network, scenarios, proba, data_flow, invest_
         sum(flot[s,(n,i)] for i in 1:network.N if (n,i) in network.edges) - 
         sum(flot[s,(i,n)] for i in 1:network.N if (i,n) in network.edges) + 
         (data_flow[s].has_production[n] == 1 ? prod[s,n] : 0) + 
-        def[s,n] == data_flow[s].demands[n]
+        unsupplied[s,n] == data_flow[s].demands[n]
         )
     
     # Lower level obj : Objective without first stage cost to dualize 
     @objective(Lower(model), Min, 
         sum(proba[s] * prod[s,n] * data_flow[s].prod_cost[n] for s in 1:scenarios, n in 1:network.N if data_flow[s].has_production[n] == 1) +
-        sum(sum((proba[s] * data_flow[s].def_cost) .* def[s,:]) for s in 1:scenarios) +
+        sum(sum((proba[s] * data_flow[s].unsupplied_cost) .* unsupplied[s,:]) for s in 1:scenarios) +
         sum(proba[s] * data_flow[s].epsilon_flow * flot[s,(i,j)] for s in 1:scenarios, (i,j) in network.edges)
         )
     
     # Upper level obj : Objective with first stage cost to dualize 
     @objective(Upper(model), Min, 
     sum(proba[s] * prod[s,n] * data_flow[s].prod_cost[n] for s in 1:scenarios, n in 1:network.N if data_flow[s].has_production[n] == 1) +
-    sum(sum((proba[s] * data_flow[s].def_cost) .* def[s,:]) for s in 1:scenarios) +
+    sum(sum((proba[s] * data_flow[s].unsupplied_cost) .* unsupplied[s,:]) for s in 1:scenarios) +
     sum(proba[s] * data_flow[s].epsilon_flow * flot[s,(i,j)] for s in 1:scenarios, (i,j) in network.edges) +
     sum(invest_flow_cost[(i,j)] * invest_flow[(i,j)] for (i,j) in network.edges)
     )
     
-    return model,invest_flow, flot, prod, def
+    return model,invest_flow, flot, prod, unsupplied
 end
 
 ##################################################################################################
@@ -203,7 +204,7 @@ if PROGRAM_FILE == "problemGenerator.jl"
     invest_flow_cost = Dict(zip(network.edges, rand(50:100, length(network.edges))))
 
     print("Create bilevel model     ")
-    @time bilev, bi_invest, bi_flow, bi_prod, bi_def = crate_kkt_bilevel_problem(network, scenarios, proba, data_flow, invest_flow_cost)
+    @time bilev, bi_invest, bi_flow, bi_prod, bi_unsupplied = crate_kkt_bilevel_problem(network, scenarios, proba, data_flow, invest_flow_cost)
     set_silent(bilev)
     optimize!(bilev)
 
@@ -214,12 +215,12 @@ if PROGRAM_FILE == "problemGenerator.jl"
             println("    invest ", (i,j), " = ", value(bi_invest[(i,j)]) )
         end
     end
-    println("Defaillance")
-    def_cnt = [ sum([ value(bi_def[s,n]) > 0 ? 1 : 0 for n in 1:network.N]) for s in 1:scenarios]
+    println("unsuppliedaillance")
+    unsupplied_cnt = [ sum([ value(bi_unsupplied[s,n]) > 0 ? 1 : 0 for n in 1:network.N]) for s in 1:scenarios]
     for s in 1:scenarios
-        println("    Scenario ", s, " n_def = ", def_cnt[s])
+        println("    Scenario ", s, " n_unsupplied = ", unsupplied_cnt[s])
     end
-    println("    Def totale = ", sum( (proba .* def_cnt) ))
+    println("    unsupplied totale = ", sum( (proba .* unsupplied_cnt) ))
     println()
     
 
@@ -246,12 +247,12 @@ if PROGRAM_FILE == "problemGenerator.jl"
             println("    invest ", (i,j), " = ", value(variable_by_name(model,"invest_flow[$i,$j]")) )
         end
     end
-    println("Defaillance")
-    def_cnt = [counting_def_scenario(model, s) for s in 1:scenarios]
+    println("unsuppliedaillance")
+    unsupplied_cnt = [counting_unsupplied_scenario(model, s) for s in 1:scenarios]
     for s in 1:scenarios
-        println("    Scenario ", s, " n_def = ", def_cnt[s])
+        println("    Scenario ", s, " n_unsupplied = ", unsupplied_cnt[s])
     end
-    println("    Def totale = ", sum( (proba .* def_cnt) ))
+    println("    unsupplied totale = ", sum( (proba .* unsupplied_cnt) ))
 
     exit()
 
@@ -260,12 +261,12 @@ if PROGRAM_FILE == "problemGenerator.jl"
     ########################################
     println()
     println("Investment heuristic")
-    @printf("%-15s%-15s%-15s%-10s\n", "Invest min", "Invest max", "Obj", "Def count")
+    @printf("%-15s%-15s%-15s%-10s\n", "Invest min", "Invest max", "Obj", "unsupplied count")
 
     invest_min = 0.0
     invest_max = 1e5
     while invest_max - invest_min > 1
-        if sum( (proba .* def_cnt) ) > 0
+        if sum( (proba .* unsupplied_cnt) ) > 0
             global invest_min = sum([ invest_flow_cost[i,j] * value(variable_by_name(model,"invest_flow[$i,$j]")) for (i,j) in network.edges])
         else
             global invest_max = sum([ invest_flow_cost[i,j] * value(variable_by_name(model,"invest_flow[$i,$j]")) for (i,j) in network.edges])
@@ -274,7 +275,7 @@ if PROGRAM_FILE == "problemGenerator.jl"
         set_normalized_rhs(constraint_by_name(model, "invest_cost"), (invest_max + invest_min) / 2)
 
         optimize!(model)
-        global def_cnt = [sum([ value(variable_by_name(model,"def[$s,$n]")) > 0 ? 1 : 0 for n in 1:network.N]) for s in 1:scenarios]
-        @printf("%-15.3f%-15.3f%-15.3f%-10.3f\n", invest_min, invest_max, objective_value(model), sum( (proba .* def_cnt) ))
+        global unsupplied_cnt = [sum([ value(variable_by_name(model,"unsupplied[$s,$n]")) > 0 ? 1 : 0 for n in 1:network.N]) for s in 1:scenarios]
+        @printf("%-15.3f%-15.3f%-15.3f%-10.3f\n", invest_min, invest_max, objective_value(model), sum( (proba .* unsupplied_cnt) ))
     end
 end
