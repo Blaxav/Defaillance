@@ -36,7 +36,7 @@ struct NetworkFlowProblemData
     network::Network
     demands::Vector{Float64}
     has_production::Vector{Int}
-    _cost::Int
+    unsupplied_cost::Float64
     prod_cost::Dict{Int,Float64}
     epsilon_flow::Float64
 end
@@ -50,7 +50,7 @@ function sample_network_data
 function sample_network_data(scenarios, network, demand_range, 
     prod_cost_range, unsupplied_cost, epsilon_flow)
 
-    data_flow = Vector{NetworkFlowProblemData}(ununsupplied, scenarios)
+    data_flow = Vector{NetworkFlowProblemData}(undef, scenarios)
     for s in 1:scenarios
 
         demands = rand(demand_range, network.N)
@@ -68,120 +68,7 @@ function sample_network_data(scenarios, network, demand_range,
     return data_flow
 end
 
-"""
-function create_invest_optim_problem
-    brief: Creates an stochastic investment optimization problem on a network
-        It is possible to invest on every edge of the graph
-"""
-function create_invest_optim_problem(network, scenarios, proba, data_flow, invest_flow_cost)
-    model = Model(CPLEX.Optimizer)
 
-    # invest flow variables
-    @variable(model, 0 <= invest_flow[i = 1:network.N, j = i:network.N; 
-        (i,j) in network.edges || (j,i) in network.edges])
-
-    # Flow variables
-    @variable(model, flot[s = 1:scenarios, i = 1:network.N, j = i:network.N; (i,j) 
-        in network.edges || (j,i) in network.edges])
-
-    # Production variables
-    @variable(model, 0 <= prod[s = 1:scenarios, n in 1:network.N; 
-        data_flow[s].has_production[n] == 1])
-
-    # Loss of load variables
-    @variable(model, 0 <= unsupplied[s = 1:scenarios, i in 1:network.N])
-
-    # Flow bounds
-    invest_init = 5
-    @constraint(model, flow_max_positive[s = 1:scenarios, (i,j) in network.edges], 
-        flot[s,i,j] <= invest_init + invest_flow[i,j])
-    @constraint(model, flow_max_negative[s = 1:scenarios, (i,j) in network.edges], 
-        -(invest_flow[i,j] + invest_init) <= flot[s,i,j])
-
-    @constraint(model, flow_conservation[s = 1:scenarios, n in 1:network.N], 
-        sum(flot[s,n,i] for i in 1:network.N if (n,i) in network.edges) - 
-        sum(flot[s,i,n] for i in 1:network.N if (i,n) in network.edges) + 
-        (data_flow[s].has_production[n] == 1 ? prod[s,n] : 0) + 
-        unsupplied[s,n] == data_flow[s].demands[n]
-        )
-    
-    # Constraint to lead heuristic
-    @constraint(model, invest_cost,
-        sum( [invest_flow_cost[i,j] * invest_flow[i,j] for (i,j) in network.edges]) >= 0.0
-        )
-
-    @objective(model, Min, 
-        sum(proba[s] * prod[s,n] * data_flow[s].prod_cost[n] for s in 1:scenarios, n in 1:network.N if data_flow[s].has_production[n] == 1) +
-        sum(sum((proba[s] * data_flow[s].unsupplied_cost) .* unsupplied[s,:]) for s in 1:scenarios) +
-        sum(proba[s] * data_flow[s].epsilon_flow * flot[s,i,j] for s in 1:scenarios, (i,j) in network.edges) + 
-        sum(invest_flow_cost[i,j] * invest_flow[i,j] for (i,j) in network.edges)
-        )
-    
-    return model
-end
-
-"""
-function counting_unsupplied_scenario
-    brief: Computes the number of nodes which loss of load for a given scenario after optimization
-"""
-function counting_unsupplied_scenario(model, scenario)
-    return sum([ value(variable_by_name(model,"unsupplied[$scenario,$n]")) > 0 ? 1 : 0 for n in 1:network.N])
-end
-
-"""
-function crate_invest_optim_problem
-    brief: Creates an stochastic investment optimization problem on a network
-        It is possible to invest on every edge of the graph
-"""
-function crate_kkt_bilevel_problem(network, scenarios, proba, data_flow, invest_flow_cost)
-
-    model = BilevelModel(CPLEX.Optimizer, mode = BilevelJuMP.SOS1Mode())
-
-    ## Upper level variables : invest flow variables
-    @variable(Upper(model), 0 <= invest_flow[(i,j) in network.edges])
-
-    ## Lower level variables
-    # Flow variables
-    @variable(Lower(model), flot[s = 1:scenarios, (i,j) in network.edges])
-    # Production variables
-    @variable(Lower(model), 0 <= prod[s = 1:scenarios, n in 1:network.N; 
-        data_flow[s].has_production[n] == 1])
-    # Loss of load variables
-    @variable(Lower(model), 0 <= unsupplied[s = 1:scenarios, i in 1:network.N])
-
-    ## Primal constraints
-    ## ----------------
-    # Flow bounds
-    invest_init = 5
-    @constraint(Lower(model), flow_max_positive[s = 1:scenarios, (i,j) in network.edges], 
-        flot[s,(i,j)] <= invest_init + invest_flow[(i,j)])
-    @constraint(Lower(model), flow_max_negative[s = 1:scenarios, (i,j) in network.edges], 
-        -(invest_init + invest_flow[(i,j)]) <= flot[s,(i,j)])
-    # Flow conservation
-    @constraint(Lower(model), flow_conservation[s = 1:scenarios, n in 1:network.N], 
-        sum(flot[s,(n,i)] for i in 1:network.N if (n,i) in network.edges) - 
-        sum(flot[s,(i,n)] for i in 1:network.N if (i,n) in network.edges) + 
-        (data_flow[s].has_production[n] == 1 ? prod[s,n] : 0) + 
-        unsupplied[s,n] == data_flow[s].demands[n]
-        )
-    
-    # Lower level obj : Objective without first stage cost to dualize 
-    @objective(Lower(model), Min, 
-        sum(proba[s] * prod[s,n] * data_flow[s].prod_cost[n] for s in 1:scenarios, n in 1:network.N if data_flow[s].has_production[n] == 1) +
-        sum(sum((proba[s] * data_flow[s].unsupplied_cost) .* unsupplied[s,:]) for s in 1:scenarios) +
-        sum(proba[s] * data_flow[s].epsilon_flow * flot[s,(i,j)] for s in 1:scenarios, (i,j) in network.edges)
-        )
-    
-    # Upper level obj : Objective with first stage cost to dualize 
-    @objective(Upper(model), Min, 
-    sum(proba[s] * prod[s,n] * data_flow[s].prod_cost[n] for s in 1:scenarios, n in 1:network.N if data_flow[s].has_production[n] == 1) +
-    sum(sum((proba[s] * data_flow[s].unsupplied_cost) .* unsupplied[s,:]) for s in 1:scenarios) +
-    sum(proba[s] * data_flow[s].epsilon_flow * flot[s,(i,j)] for s in 1:scenarios, (i,j) in network.edges) +
-    sum(invest_flow_cost[(i,j)] * invest_flow[(i,j)] for (i,j) in network.edges)
-    )
-    
-    return model,invest_flow, flot, prod, unsupplied
-end
 
 ##################################################################################################
 # Main

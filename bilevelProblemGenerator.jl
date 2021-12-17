@@ -90,6 +90,19 @@ function create_bilevel_invest_problem(network, scenarios, proba, data_flow, inv
     return BilevProblem(model,invest_flow,[], flow, prod, unsupplied)
 end
 
+
 function count_bilev_unsupplied_nodes(bilev_problem, scenarios, network)
     return [ sum([ value(bilev_problem.unsupplied[s,n]) > 0 ? 1 : 0 for n in 1:network.N]) for s in 1:scenarios]
+end
+
+"""
+function solve
+    brief: solves a bilevel problem with SOS1 method of MIP solvers
+    returns: time to solve
+"""
+function solve(bilev_prob, silent_mode)
+
+    silent_mode == true ? set_silent(bilev_prob.model) : nothing
+    timer = @elapsed optimize!(bilev_prob.model)
+    return timer
 end
