@@ -32,7 +32,7 @@ include("stochasticProblemGenerator.jl")
 # User options
 #########################################################################################
 
-N = 20
+N = 5
 graph_density = 30
 seed = 0
 print("Generating graph ")
@@ -41,11 +41,11 @@ print("Generating graph ")
 
 seed >= 0 ? Random.seed!(seed) : nothing
 
-scenarios = 10
+scenarios = 2
 proba = generate_probabilities(scenarios)
 println("Proba = ", proba)
 print("Sample data      ")
-@time data_flow = sample_network_data(scenarios, network, 1:50, 1:10, 1000, 0.1)
+@time data_flow = sample_network_data(scenarios, network, 2, 1:50, 1:10, 1000, 0.1)
 
 invest_flow_cost = Dict(zip(network.edges, rand(50:100, length(network.edges))))
 

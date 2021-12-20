@@ -34,10 +34,10 @@ struct NetworkFlowProblemData
 """
 struct NetworkFlowProblemData
     network::Network
-    demands::Vector{Float64}
+    demands::Matrix{Float64}
     has_production::Vector{Int}
     unsupplied_cost::Float64
-    prod_cost::Dict{Int,Float64}
+    prod_cost::Dict{Int,Vector{Float64}}
     epsilon_flow::Float64
 end
 
@@ -56,19 +56,19 @@ end
 function sample_network_data
     brief: Generates a random vector of NetworkFlowProblemData for each scenario
 """
-function sample_network_data(scenarios, network, demand_range, 
+function sample_network_data(scenarios, network, time_steps, demand_range, 
     prod_cost_range, unsupplied_cost, epsilon_flow)
 
     data_flow = Vector{NetworkFlowProblemData}(undef, scenarios)
     for s in 1:scenarios
 
-        demands = rand(demand_range, network.N)
+        demands = rand(demand_range, network.N, time_steps)
 
         # Sampling production nodes
         has_production = rand(0:1, network.N)
         prod_cost = Dict(zip(
             [i for i in 1:N if has_production[i] == 1],
-            rand(prod_cost_range, sum(has_production))
+            [rand(prod_cost_range, time_steps) for i in 1:sum(has_production)]
             ))
 
         data_flow[s] = NetworkFlowProblemData(network, demands, 
