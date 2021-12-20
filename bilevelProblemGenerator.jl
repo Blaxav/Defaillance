@@ -33,6 +33,7 @@ struct BilevProblem
     flow
     prod
     unsupplied
+    has_unsupplied
 end
 
 """
@@ -40,7 +41,8 @@ function create_bilevel_invest_problem
     brief: Creates a stochastic bilevel investment optimization problem on a network
         It is possible to invest on every edge of the graph
 """
-function create_bilevel_invest_problem(network, scenarios, proba, data_flow, invest_flow_cost)
+function create_bilevel_invest_problem(network, scenarios, proba, data_flow, invest_flow_cost,
+    epsilon_cnt, n_unsupplied)
 
     model = BilevelModel(CPLEX.Optimizer, mode = BilevelJuMP.SOS1Mode())
 
@@ -55,6 +57,10 @@ function create_bilevel_invest_problem(network, scenarios, proba, data_flow, inv
         data_flow[s].has_production[n] == 1])
     # Loss of load variables
     @variable(Lower(model), 0 <= unsupplied[s = 1:scenarios, i in 1:network.N])
+
+    # Counting unsupplied
+    @variable(Upper(model), has_unsupplied[s = 1:scenarios, i in 1:network.N], Bin)
+
 
     ## Lower level constraints
     ## ----------------
@@ -72,6 +78,14 @@ function create_bilevel_invest_problem(network, scenarios, proba, data_flow, inv
         unsupplied[s,n] == data_flow[s].demands[n]
         )
     
+    # Counting variables behaviour
+    @constraint(Upper(model), unsupplied_to_zero[s = 1:scenarios, n = 1:network.N],
+        has_unsupplied[s,n] <= (1/epsilon_cnt)*unsupplied[s,n] )
+    @constraint(Upper(model), unsupplied_to_one[s = 1:scenarios, n = 1:network.N],
+        2*data_flow[s].demands[n]*has_unsupplied[s,n] >= unsupplied[s,n] - epsilon_cnt )
+
+    @constraint(Upper(model), unsupplied_cnt, sum(proba .* sum(has_unsupplied[:,n] for n = 1:network.N) ) <= n_unsupplied )
+    
     # Lower level obj : Objective without first stage cost to dualize 
     @objective(Lower(model), Min, 
         sum(proba[s] * prod[s,n] * data_flow[s].prod_cost[n] for s in 1:scenarios, n in 1:network.N if data_flow[s].has_production[n] == 1) +
@@ -86,8 +100,8 @@ function create_bilevel_invest_problem(network, scenarios, proba, data_flow, inv
     sum(proba[s] * data_flow[s].epsilon_flow * flow[s,(i,j)] for s in 1:scenarios, (i,j) in network.edges) +
     sum(invest_flow_cost[(i,j)] * invest_flow[(i,j)] for (i,j) in network.edges)
     )
-    
-    return BilevProblem(model,invest_flow,[], flow, prod, unsupplied)
+
+    return BilevProblem(model,invest_flow,[], flow, prod, unsupplied, has_unsupplied)
 end
 
 
