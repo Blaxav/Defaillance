@@ -108,12 +108,12 @@ function add_unsupplied_counter_constraint(stoch_prob, n_unsupplied, network, sc
     @variable(stoch_prob.model, has_unsupplied[s = 1:scenarios, i in 1:network.N], Bin)
 
     # Variables behaviour
-    @constraint(stoch_prob.model, unsupplied_to_zero[s = 1:scenarios, n = 1:network.n],
+    @constraint(stoch_prob.model, unsupplied_to_zero[s = 1:scenarios, n = 1:network.N],
         has_unsupplied[s,n] <= (1/epsilon_cnt)*stoch_prob.unsupplied[s,n] )
-    @constraint(stoch_prob.model, unsupplied_to_one[s = 1:scenarios, n = 1:network.n],
-        2*networkData.demands[s,n]*has_unsupplied[s,n] >= stoch_prob.unsupplied[s,n] * epsilon_cnt )
+    @constraint(stoch_prob.model, unsupplied_to_one[s = 1:scenarios, n = 1:network.N],
+        2*networkData[s].demands[n]*has_unsupplied[s,n] >= stoch_prob.unsupplied[s,n] - epsilon_cnt )
 
-    @constraint(stoch_prob.model, unsupplied_cnt, sum(proba .* [sum(stoch_prob.has_unsupplied[:,n] for n = 1:network.N)]) <= n_unsupplied )
+    @constraint(stoch_prob.model, unsupplied_cnt, sum(proba .* sum(has_unsupplied[:,n] for n = 1:network.N) ) <= n_unsupplied )
     return has_unsupplied, unsupplied_cnt
 end
 
