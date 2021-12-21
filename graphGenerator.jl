@@ -25,11 +25,19 @@ end
 #########################################################################################
 # Network type
 #########################################################################################
+struct Edge
+    from::Int
+    to::Int
+end
+
 struct Network
     N::Int # Both the number of nodes and their indices
     positions::Vector{Tuple{Int, Int}} # Positions of the nodes on a map
-    edges::Vector{Tuple{Int, Int}} # list of undirected edges
+    edges::Vector{Edge} # list of undirected edges
+    n_edges::Int # Number of edges
 end
+
+
 
 #########################################################################################
 #########################################################################################
@@ -102,13 +110,13 @@ Args:
     N : number of nodes
     positions : position of each node on the grid
     distances : matrix of distances between each pair of vertices
-    edges : Vector{Tuple{Int, Int}} of edges
+    edges : Vector{Edge} of edges
 Returns:
-    Vector{Tuple{Int, Int}} of edges
+    Vector{Edge} of edges
 """
 function sample_edges_to_connexity(N, positions, distances)
     
-    edges = Vector{Tuple{Int, Int}}()
+    edges = Vector{Edge}()
     
     Dmax = 0
     while is_graph_connex(N, edges) == false && Dmax < 30
@@ -116,7 +124,7 @@ function sample_edges_to_connexity(N, positions, distances)
         Dmax += 1
         for i in 1:N, j in (i+1):N
             if Dmax - 1 < distances[i,j] <= Dmax
-                push!(edges, (i,j))
+                push!(edges, Edge(i,j))
             end
         end
     end
@@ -128,7 +136,7 @@ Function is_graph_connex
 Brief: Check connexity of a graph given by a set of N vertices and a list of edges
 Args:
     N: Number of vertices, vertices are labelled from 1 to N
-    edges: Vector{Tuple{Int, Int}} of edges
+    edges: Vector{Edge} of edges
 Returns:
     True if graph is connex, else False
 """
@@ -143,13 +151,13 @@ function is_graph_connex(N, edges)
         # Take an element of ongoing_neighbors
         current_node = pop!(ongoing_neighbors)
 
-        for (i,j) in edges
-            if i == current_node && (j in seen_vertices) == false
-                push!(ongoing_neighbors, j)
-                push!(seen_vertices, j)
-            elseif j == current_node && (i in seen_vertices) == false
-                push!(ongoing_neighbors, i)
-                push!(seen_vertices, i)
+        for e in edges
+            if e.from == current_node && (e.to in seen_vertices) == false
+                push!(ongoing_neighbors, e.to)
+                push!(seen_vertices, e.to)
+            elseif e.to == current_node && (e.from in seen_vertices) == false
+                push!(ongoing_neighbors, e.from)
+                push!(seen_vertices, e.from)
             end
         end
 
@@ -170,7 +178,7 @@ Function remove_edge_to_density
 Brief: Try removing edges to a graph to reach a given density
 Args:
     N: number of vertices
-    edges: edges as pairs of vertices
+    edges: edges (struct with from::Int and to::Int)
     density: density to reach in percent - 0:100
     max_try: maximum number of successive tries to remove arcs resulting in a non convex graph
 Returns:
@@ -238,8 +246,8 @@ function create_network(N, graph_density, seed; gridRatio = 1.5, proportion=0.00
 
     if drawGraph == true || plotGraph == true
         graph_plot_final = plot(positions, seriestype = :scatter, showaxis = false, grid = false, ticks = false, legend = false)
-        for (i,j) in edges
-            plot!([positions[i][1], positions[j][1]], [positions[i][2], positions[j][2]])
+        for e in edges
+            plot!([positions[e.from][1], positions[e.to][1]], [positions[e.from][2], positions[e.to][2]])
         end
 
         if plotGraph == true
@@ -253,7 +261,7 @@ function create_network(N, graph_density, seed; gridRatio = 1.5, proportion=0.00
         end
     end
 
-    return Network(N, positions, edges)
+    return Network(N, positions, edges, length(edges))
 end
 
 #########################################################################################
@@ -265,8 +273,8 @@ function main()
         help()
     end
 
-    N = 100
-    graph_density = 2.5
+    N = 15
+    graph_density = 30
     seed = -1
     for i in 1:length(ARGS)
         if ARGS[i] == "-N"
@@ -279,8 +287,9 @@ function main()
             seed = parse(Int, ARGS[i+1])
         end
     end
-    println("coucou")
-    create_network(N, graph_density, seed, plotGraph = true, drawGraph = false)
+    
+    net = create_network(N, graph_density, seed, plotGraph = true, drawGraph = false)
+    
 end
 
 if PROGRAM_FILE == "graphGenerator.jl"

@@ -40,47 +40,66 @@ function create_invest_optim_problem
     brief: Creates an stochastic investment optimization problem on a network
         It is possible to invest on every edge of the graph
 """
-function create_invest_optim_problem(network, scenarios, proba, data_flow, invest_flow_cost)
+function create_invest_optim_problem(data)
     model = Model(CPLEX.Optimizer)
 
     # invest flow variables
-    @variable(model, 0 <= invest_flow[(i,j) in network.edges])
+    @variable(model, 0 <= invest_flow[e in data.network.edges])
 
     # Flow variables
-    @variable(model, flow[s = 1:scenarios, (i,j) in network.edges])
+    @variable(model, flow[s in 1:data.S, e in data.network.edges, t in 1:data.T])
 
     # Production variables
-    @variable(model, 0 <= prod[s = 1:scenarios, n in 1:network.N; 
-        data_flow[s].has_production[n] == 1])
+    @variable(model, 0 <= prod[s in 1:data.S, n in 1:data.network.N, t in 1:data.T; 
+        data.scenario[s].has_production[n] == 1])
 
     # Loss of load variables
-    @variable(model, 0 <= unsupplied[s = 1:scenarios, i in 1:network.N])
+    @variable(model, 0 <= unsupplied[s in 1:data.S, i in 1:data.network.N, t in 1:data.T])
+
 
     # Flow bounds
     invest_init = 5
-    @constraint(model, flow_max_positive[s = 1:scenarios, (i,j) in network.edges], 
-        flow[s,(i,j)] <= invest_init + invest_flow[(i,j)])
-    @constraint(model, flow_max_negative[s = 1:scenarios, (i,j) in network.edges], 
-        -(invest_flow[(i,j)] + invest_init) <= flow[s,(i,j)])
+    @constraint(model, flow_max_positive[s in 1:data.S, e in data.network.edges, t in 1:data.T], 
+        flow[s,e,t] <= invest_init + invest_flow[e])
+    @constraint(model, flow_max_negative[s in 1:data.S, e in data.network.edges, t in 1:data.T], 
+        -(invest_flow[e] + invest_init) <= flow[s,e,t])
 
-    @constraint(model, flow_conservation[s = 1:scenarios, n in 1:network.N], 
-        sum(flow[s,(n,i)] for i in 1:network.N if (n,i) in network.edges) - 
-        sum(flow[s,(i,n)] for i in 1:network.N if (i,n) in network.edges) + 
-        (data_flow[s].has_production[n] == 1 ? prod[s,n] : 0) + 
-        unsupplied[s,n] == data_flow[s].demands[n]
+    
+    @constraint(model, flow_conservation[s in 1:data.S, n in 1:data.network.N, t in 1:data.T], 
+        sum(flow[s,e,t] for e in data.network.edges if e.to == n) - 
+        sum(flow[s,e,t] for e in data.network.edges if e.from == n) + 
+        (data.scenario[s].has_production[n] == 1 ? prod[s,n,t] : 0) + 
+        unsupplied[s,n,t] == data.scenario[s].demands[n,t]
         )
     
     # Constraint to lead heuristic
     @constraint(model, invest_cost,
-        sum( [invest_flow_cost[(i,j)] * invest_flow[(i,j)] for (i,j) in network.edges]) >= 0.0
+        sum( [data.invest_flow_cost[e] * invest_flow[e] for e in data.network.edges]) >= 0.0
         )
-
-    @objective(model, Min, 
-        sum(proba[s] * prod[s,n] * data_flow[s].prod_cost[n] for s in 1:scenarios, n in 1:network.N if data_flow[s].has_production[n] == 1) +
-        sum(sum((proba[s] * data_flow[s].unsupplied_cost) .* unsupplied[s,:]) for s in 1:scenarios) +
-        sum(proba[s] * data_flow[s].epsilon_flow * flow[s,(i,j)] for s in 1:scenarios, (i,j) in network.edges) + 
-        sum(invest_flow_cost[(i,j)] * invest_flow[(i,j)] for (i,j) in network.edges)
+    
+    @objective(model, Min,
+        sum( data.invest_flow_cost[e] * invest_flow[e] for e in data.network.edges ) +
+        # Sum on scenarios
+        sum( data.probability[s] *
+            (   
+            # Sum on time steps
+            sum( 
+                (
+                # unsupplied costs
+                sum( data.scenario[s].unsupplied_cost * unsupplied[s,n,t] 
+                    for n in 1:data.network.N ) +
+                # production costs
+                sum( data.scenario[s].prod_cost[n][t] * prod[s,n,t] 
+                    for n in 1:data.network.N 
+                    if data.scenario[s].has_production[n] == 1) +
+                # flow cost
+                sum( data.scenario[s].epsilon_flow * flow[s,e,t] 
+                    for e in data.network.edges )
+                ) for t in 1:data.T
+            )
+            ) for s in 1:data.S
         )
+    )
     
     return StochasticProblem(model, invest_flow, [], flow, prod, unsupplied)
 end
@@ -89,8 +108,8 @@ end
 function counting_unsupplied_scenario
     brief: Computes the number of nodes which loss of load for a given scenario after optimization
 """
-function counting_unsupplied_scenario(stoch_prob, scenario)
-    return sum([ value(stoch_prob.unsupplied[scenario,n]) > 0 ? 1 : 0 for n in 1:network.N])
+function counting_unsupplied_scenario(stoch_prob, scenario, epsilon, data)
+    return sum( value(stoch_prob.unsupplied[scenario,n,t]) > epsilon ? 1 : 0 for n in 1:data.network.N, t in 1:data.T)
 end
 
 """

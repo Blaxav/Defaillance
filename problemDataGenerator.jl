@@ -47,8 +47,12 @@ struct StochasticProblemData
     brief: contains a vector of NetworkFlowProblemData associated with probabilities
 """
 struct StochasticProblemData
+    S::Int # Number of scenarios
     scenario::Vector{NetworkFlowProblemData}
     probability::Vector{Float64}
+    network::Network
+    T::Int # Time steps
+    invest_flow_cost::Dict{Edge, Float64}
 end
 
 
@@ -59,13 +63,15 @@ function sample_network_data
 function sample_network_data(scenarios, network, time_steps, demand_range, 
     prod_cost_range, unsupplied_cost, epsilon_flow)
 
+    # Same production for each scenario
+    has_production = rand(0:1, network.N)
+
     data_flow = Vector{NetworkFlowProblemData}(undef, scenarios)
     for s in 1:scenarios
 
         demands = rand(demand_range, network.N, time_steps)
 
-        # Sampling production nodes
-        has_production = rand(0:1, network.N)
+        # Sampling production nodes    
         prod_cost = Dict(zip(
             [i for i in 1:N if has_production[i] == 1],
             [rand(prod_cost_range, time_steps) for i in 1:sum(has_production)]
@@ -80,4 +86,17 @@ end
 function generate_probabilities(n_scenarios)
     proba = rand(1:100, n_scenarios)
     return (1/sum(proba)) .* proba
+end
+
+function investment_problem_data_generator(scenarios, network, time_steps, demand_range, 
+    prod_cost_range, unsupplied_cost, epsilon_flow, invest_cost_range)
+    
+    data_flow = sample_network_data(scenarios, network, time_steps, demand_range, 
+    prod_cost_range, unsupplied_cost, epsilon_flow)
+
+    proba = generate_probabilities(scenarios)
+
+    invest_flow_cost = Dict(zip(network.edges, rand(invest_cost_range, network.n_edges)))
+
+    return StochasticProblemData(scenarios, data_flow, proba, network, time_steps, invest_flow_cost)
 end
