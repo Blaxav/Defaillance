@@ -42,10 +42,16 @@ print("Generating graph ")
 seed >= 0 ? Random.seed!(seed) : nothing
 
 scenarios = 2
-time_steps = 1
+time_steps = 10
+demand_range = 1:50
+prod_cost_range = 10:20
+unsupplied_cost = 50
+epsilon_flow = 0.1
+grad_prod = 0.7
+invest_cost_range = 50:100
 print("Sample data      ")
-@time data = investment_problem_data_generator(scenarios, network, time_steps, 1:50, 
-10:20, 300, 0.1, 50:100)
+@time data = investment_problem_data_generator(scenarios, network, time_steps, demand_range, 
+prod_cost_range, unsupplied_cost, epsilon_flow, grad_prod, invest_cost_range)
 
 println()
 
@@ -63,10 +69,10 @@ print("Solving model    ")
 
 println()
 println("Obj : ", objective_value(stoch_prob.model))
-println("Invest solution cost = ", sum([ invest_flow_cost[i,j] * value(stoch_prob.invest_flow[(i,j)]) for (i,j) in network.edges]))  
+println("Invest solution cost = ", investment_cost(stoch_prob, data))  
 println("unsupplied")
-unsupplied_cnt = [counting_unsupplied_scenario(stoch_prob, s) for s in 1:scenarios]
-println("    unsupplied totale = ", sum( (proba .* unsupplied_cnt) ))
+unsupplied_cnt = [counting_unsupplied_scenario(stoch_prob, s, 0.0, data) for s in 1:data.S]
+println("    unsupplied totale = ", sum( data.probability .* unsupplied_cnt ))
 
 
 ########################################
@@ -79,11 +85,10 @@ println("Investment heuristic")
 invest_min = 0.0
 invest_max = 1e6
 max_unsupplied = 0
+rhs = investment_cost(stoch_prob, data)
 
-rhs = 0
-
-while invest_max - invest_min > 1e-3
-    if sum( (proba .* unsupplied_cnt) ) > max_unsupplied
+while invest_max - invest_min > 1e-6*invest_max
+    if sum( (data.probability .* unsupplied_cnt) ) > max_unsupplied
         global invest_min = rhs
     else
         global invest_max = rhs
@@ -93,8 +98,9 @@ while invest_max - invest_min > 1e-3
     set_normalized_rhs(constraint_by_name(stoch_prob.model, "invest_cost"), rhs)
 
     optimize!(stoch_prob.model)
-    global unsupplied_cnt = [sum([ value(variable_by_name(stoch_prob.model,"unsupplied[$s,$n]")) > 0 ? 1 : 0 for n in 1:network.N]) for s in 1:scenarios]
-    @printf("%-15.3f%-15.3f%-15.3f%-15.3f%-10.3f\n", invest_min, invest_max, rhs, objective_value(stoch_prob.model), sum( (proba .* unsupplied_cnt) ))
+    global unsupplied_cnt = [ counting_unsupplied_scenario(stoch_prob, s, 0.0, data) for s in 1:data.S ]
+    @printf("%-15.3f%-15.3f%-15.3f%-15.3f%-10.3f\n", invest_min, invest_max, rhs, 
+        objective_value(stoch_prob.model), sum( data.probability .* unsupplied_cnt ) )
 end
 
 set_normalized_rhs(constraint_by_name(stoch_prob.model, "invest_cost"), 0)
@@ -102,19 +108,23 @@ set_normalized_rhs(constraint_by_name(stoch_prob.model, "invest_cost"), 0)
 ########################################
 # N hours counting constraint
 ########################################
-has_unsupplied, unsupplied_cnt = add_unsupplied_counter_constraint(stoch_prob, max_unsupplied, network, scenarios, proba, 0.01, data_flow)
-println()
 println("Adding unsupplied constraint")
+epsilon_cnt = 0.001
+@time has_unsupplied, unsupplied_cnt = add_unsupplied_counter_constraint(stoch_prob, max_unsupplied, epsilon_cnt, data)
+println()
+
 print("Solving stochastic model with binary variables ")
 @time solve(stoch_prob, true)
 println()
 println("Obj : ", objective_value(stoch_prob.model))
 
-println("Invest solution cost = ", sum([ invest_flow_cost[i,j] * value(stoch_prob.invest_flow[(i,j)]) for (i,j) in network.edges]))    
+println("Invest solution cost = ", investment_cost(stoch_prob, data) )    
 println("has_unsupplied")
-has_unsupplied_cnt = [sum([ value(has_unsupplied[s,n]) for n in 1:network.N]) for s in 1:scenarios]
-println("    unsupplied totale = ", sum( (proba .* has_unsupplied_cnt) ))
+has_unsupplied_cnt = [sum( value(has_unsupplied[s,n,t]) for n in 1:data.network.N, t in 1:data.T) for s in 1:scenarios]
+println("    unsupplied totale = ", sum( (data.probability .* has_unsupplied_cnt) ))
 println()
+
+exit()
 
 ########################################
 # Bilevel problem

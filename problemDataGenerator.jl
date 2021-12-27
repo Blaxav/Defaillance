@@ -39,6 +39,7 @@ struct NetworkFlowProblemData
     unsupplied_cost::Float64
     prod_cost::Dict{Int,Vector{Float64}}
     epsilon_flow::Float64
+    grad_prod::Float64
 end
 
 
@@ -61,7 +62,7 @@ function sample_network_data
     brief: Generates a random vector of NetworkFlowProblemData for each scenario
 """
 function sample_network_data(scenarios, network, time_steps, demand_range, 
-    prod_cost_range, unsupplied_cost, epsilon_flow)
+    prod_cost_range, unsupplied_cost, epsilon_flow, grad_prod)
 
     # Same production for each scenario
     has_production = rand(0:1, network.N)
@@ -78,7 +79,7 @@ function sample_network_data(scenarios, network, time_steps, demand_range,
             ))
 
         data_flow[s] = NetworkFlowProblemData(network, demands, 
-            has_production, unsupplied_cost, prod_cost, epsilon_flow)
+            has_production, unsupplied_cost, prod_cost, epsilon_flow, grad_prod)
     end
     return data_flow
 end
@@ -89,10 +90,10 @@ function generate_probabilities(n_scenarios)
 end
 
 function investment_problem_data_generator(scenarios, network, time_steps, demand_range, 
-    prod_cost_range, unsupplied_cost, epsilon_flow, invest_cost_range)
+    prod_cost_range, unsupplied_cost, epsilon_flow, grad_prod, invest_cost_range)
     
     data_flow = sample_network_data(scenarios, network, time_steps, demand_range, 
-    prod_cost_range, unsupplied_cost, epsilon_flow)
+    prod_cost_range, unsupplied_cost, epsilon_flow, grad_prod)
 
     proba = generate_probabilities(scenarios)
 

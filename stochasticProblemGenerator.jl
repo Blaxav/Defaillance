@@ -118,21 +118,21 @@ function add_unsupplied_counter_constraint
         and a constraints to limit the number of node with unsupplied energy to n_unsupplied
     args:
         stoch_prob : an instance of StochasticProblem
-        n_unsupplied: maximum number of nodes with unsupplied enery in an optimal solution
-        network: an instance of Network
-        proba: vector of prabilities 
+        max_unsupplied: maximum number of nodes with unsupplied enery in an optimal solution
+        data : an instance of StochasticProblemData
     returns: references to new variables and new constraint
 """
-function add_unsupplied_counter_constraint(stoch_prob, n_unsupplied, network, scenarios, proba, epsilon_cnt, networkData)
-    @variable(stoch_prob.model, has_unsupplied[s = 1:scenarios, i in 1:network.N], Bin)
+function add_unsupplied_counter_constraint(stoch_prob, max_unsupplied, epsilon_cnt, data)
+   
+    @variable(stoch_prob.model, has_unsupplied[s in 1:data.S, i in 1:data.network.N, t in 1:data.T], Bin)
 
     # Variables behaviour
-    @constraint(stoch_prob.model, unsupplied_to_zero[s = 1:scenarios, n = 1:network.N],
-        has_unsupplied[s,n] <= (1/epsilon_cnt)*stoch_prob.unsupplied[s,n] )
-    @constraint(stoch_prob.model, unsupplied_to_one[s = 1:scenarios, n = 1:network.N],
-        2*networkData[s].demands[n]*has_unsupplied[s,n] >= stoch_prob.unsupplied[s,n] - epsilon_cnt )
-
-    @constraint(stoch_prob.model, unsupplied_cnt, sum(proba .* sum(has_unsupplied[:,n] for n = 1:network.N) ) <= n_unsupplied )
+    @constraint(stoch_prob.model, unsupplied_to_zero[s in 1:data.S, n in 1:data.network.N, t in data.T],
+        has_unsupplied[s,n,t] <= (1/epsilon_cnt)*stoch_prob.unsupplied[s,n,t] )
+    @constraint(stoch_prob.model, unsupplied_to_one[s in 1:data.S, n in 1:data.network.N, t in data.T],
+        2*data.scenario[s].demands[n,t]*has_unsupplied[s,n,t] >= stoch_prob.unsupplied[s,n,t] - epsilon_cnt )
+    
+    @constraint(stoch_prob.model, unsupplied_cnt, sum(data.probability .* sum( sum(has_unsupplied[:,n,t] for n = 1:data.network.N) for t in 1:data.T )) <= max_unsupplied )
     return has_unsupplied, unsupplied_cnt
 end
 
@@ -146,4 +146,12 @@ function solve(stoch_prob, silent_mode)
     silent_mode == true ? set_silent(stoch_prob.model) : nothing
     timer = @elapsed optimize!(stoch_prob.model)
     return timer
+end
+
+"""
+function investment_cost
+    brief: computes the investment cost of the inner solution of stoch_prob
+"""
+function investment_cost(stoch_prob, data)
+    sum( data.invest_flow_cost[e] * value(stoch_prob.invest_flow[e]) for e in data.network.edges)
 end
