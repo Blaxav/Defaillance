@@ -32,8 +32,8 @@ include("stochasticProblemGenerator.jl")
 # User options
 #########################################################################################
 
-N = 5
-graph_density = 30
+N = 15
+graph_density = 10
 seed = 0
 print("Generating graph ")
 @time network = create_network(N, graph_density, seed, plotGraph = false, drawGraph = true)
@@ -41,8 +41,8 @@ print("Generating graph ")
 
 seed >= 0 ? Random.seed!(seed) : nothing
 
-scenarios = 2
-time_steps = 10
+scenarios = 20
+time_steps = 50
 demand_range = 1:50
 prod_cost_range = 10:20
 unsupplied_cost = 50
@@ -124,26 +124,22 @@ has_unsupplied_cnt = [sum( value(has_unsupplied[s,n,t]) for n in 1:data.network.
 println("    unsupplied totale = ", sum( (data.probability .* has_unsupplied_cnt) ))
 println()
 
-exit()
-
 ########################################
 # Bilevel problem
 ########################################
 println("#########################################################################################")
 print("Create bilevel model     ")
-epsilon_cnt = 0.01
-n_unsupplied = 0.0
-@time bilev = create_bilevel_invest_problem(network, scenarios, proba, data_flow, invest_flow_cost, epsilon_cnt, n_unsupplied)
+@time bilev = create_bilevel_invest_problem(data, epsilon_cnt, max_unsupplied)
 
 print("Solving bilevel model     ")
-@time solve(bilev, true)
+@time solve(bilev, false)
 
 println("Obj bilevel : ", objective_value(bilev.model))
-println("Invest solution cost = ", sum([ invest_flow_cost[i,j] * value(bilev.invest_flow[(i,j)]) for (i,j) in network.edges]))    
+println("Invest solution cost = ", investment_cost(bilev, data))    
 println("unsupplied")
-unsupplied_cnt = [ sum([ value(bilev.unsupplied[s,n]) > epsilon_cnt + 1e-6 ? 1 : 0 for n in 1:network.N]) for s in 1:scenarios]
+unsupplied_cnt = [ sum([ value(bilev.has_unsupplied[s,n,t]) for n in 1:network.N, t in 1:data.T]) for s in 1:scenarios]
 for s in 1:scenarios
     println("    Scenario ", s, " n_unsupplied = ", unsupplied_cnt[s])
 end
-println("    unsupplied totale = ", sum( (proba .* unsupplied_cnt) ))
+println("    unsupplied totale = ", sum( (data.probability .* unsupplied_cnt) ))
 println()

@@ -41,64 +41,94 @@ function create_bilevel_invest_problem
     brief: Creates a stochastic bilevel investment optimization problem on a network
         It is possible to invest on every edge of the graph
 """
-function create_bilevel_invest_problem(network, scenarios, proba, data_flow, invest_flow_cost,
-    epsilon_cnt, n_unsupplied)
+function create_bilevel_invest_problem(data, epsilon_cnt, max_unsupplied)
 
     model = BilevelModel(CPLEX.Optimizer, mode = BilevelJuMP.SOS1Mode())
 
-    ## Upper level variables : invest flow variables
-    @variable(Upper(model), 0 <= invest_flow[(i,j) in network.edges])
+    # invest flow variables
+    @variable(Upper(model), 0 <= invest_flow[e in data.network.edges])
 
-    ## Lower level variables
     # Flow variables
-    @variable(Lower(model), flow[s = 1:scenarios, (i,j) in network.edges])
+    @variable(Lower(model), flow[s in 1:data.S, e in data.network.edges, t in 1:data.T])
+
     # Production variables
-    @variable(Lower(model), 0 <= prod[s = 1:scenarios, n in 1:network.N; 
-        data_flow[s].has_production[n] == 1])
+    @variable(Lower(model), 0 <= prod[s in 1:data.S, n in 1:data.network.N, t in 1:data.T; 
+        data.scenario[s].has_production[n] == 1])
+
     # Loss of load variables
-    @variable(Lower(model), 0 <= unsupplied[s = 1:scenarios, i in 1:network.N])
-
-    # Counting unsupplied
-    @variable(Upper(model), has_unsupplied[s = 1:scenarios, i in 1:network.N], Bin)
+    @variable(Lower(model), 0 <= unsupplied[s in 1:data.S, i in 1:data.network.N, t in 1:data.T])
 
 
-    ## Lower level constraints
-    ## ----------------
     # Flow bounds
     invest_init = 5
-    @constraint(Lower(model), flow_max_positive[s = 1:scenarios, (i,j) in network.edges], 
-        flow[s,(i,j)] <= invest_init + invest_flow[(i,j)])
-    @constraint(Lower(model), flow_max_negative[s = 1:scenarios, (i,j) in network.edges], 
-        -(invest_init + invest_flow[(i,j)]) <= flow[s,(i,j)])
-    # Flow conservation
-    @constraint(Lower(model), flow_conservation[s = 1:scenarios, n in 1:network.N], 
-        sum(flow[s,(n,i)] for i in 1:network.N if (n,i) in network.edges) - 
-        sum(flow[s,(i,n)] for i in 1:network.N if (i,n) in network.edges) + 
-        (data_flow[s].has_production[n] == 1 ? prod[s,n] : 0) + 
-        unsupplied[s,n] == data_flow[s].demands[n]
-        )
-    
-    # Counting variables behaviour
-    @constraint(Upper(model), unsupplied_to_zero[s = 1:scenarios, n = 1:network.N],
-        has_unsupplied[s,n] <= (1/epsilon_cnt)*unsupplied[s,n] )
-    @constraint(Upper(model), unsupplied_to_one[s = 1:scenarios, n = 1:network.N],
-        2*data_flow[s].demands[n]*has_unsupplied[s,n] >= unsupplied[s,n] - epsilon_cnt )
+    @constraint(Lower(model), flow_max_positive[s in 1:data.S, e in data.network.edges, t in 1:data.T], 
+        flow[s,e,t] <= invest_init + invest_flow[e])
+    @constraint(Lower(model), flow_max_negative[s in 1:data.S, e in data.network.edges, t in 1:data.T], 
+        -(invest_flow[e] + invest_init) <= flow[s,e,t])
 
-    @constraint(Upper(model), unsupplied_cnt, sum(proba .* sum(has_unsupplied[:,n] for n = 1:network.N) ) <= n_unsupplied )
     
-    # Lower level obj : Objective without first stage cost to dualize 
-    @objective(Lower(model), Min, 
-        sum(proba[s] * prod[s,n] * data_flow[s].prod_cost[n] for s in 1:scenarios, n in 1:network.N if data_flow[s].has_production[n] == 1) +
-        sum(sum((proba[s] * data_flow[s].unsupplied_cost) .* unsupplied[s,:]) for s in 1:scenarios) +
-        sum(proba[s] * data_flow[s].epsilon_flow * flow[s,(i,j)] for s in 1:scenarios, (i,j) in network.edges)
+    @constraint(Lower(model), flow_conservation[s in 1:data.S, n in 1:data.network.N, t in 1:data.T], 
+        sum(flow[s,e,t] for e in data.network.edges if e.to == n) - 
+        sum(flow[s,e,t] for e in data.network.edges if e.from == n) + 
+        (data.scenario[s].has_production[n] == 1 ? prod[s,n,t] : 0) + 
+        unsupplied[s,n,t] == data.scenario[s].demands[n,t]
         )
     
-    # Upper level obj : Objective with first stage cost to dualize 
-    @objective(Upper(model), Min, 
-    sum(proba[s] * prod[s,n] * data_flow[s].prod_cost[n] for s in 1:scenarios, n in 1:network.N if data_flow[s].has_production[n] == 1) +
-    sum(sum((proba[s] * data_flow[s].unsupplied_cost) .* unsupplied[s,:]) for s in 1:scenarios) +
-    sum(proba[s] * data_flow[s].epsilon_flow * flow[s,(i,j)] for s in 1:scenarios, (i,j) in network.edges) +
-    sum(invest_flow_cost[(i,j)] * invest_flow[(i,j)] for (i,j) in network.edges)
+    @variable(Upper(model), has_unsupplied[s in 1:data.S, i in 1:data.network.N, t in 1:data.T], Bin)
+
+    # Variables behaviour
+    @constraint(Upper(model), unsupplied_to_zero[s in 1:data.S, n in 1:data.network.N, t in data.T],
+        has_unsupplied[s,n,t] <= (1/epsilon_cnt)*unsupplied[s,n,t] )
+    @constraint(Upper(model), unsupplied_to_one[s in 1:data.S, n in 1:data.network.N, t in data.T],
+        2*data.scenario[s].demands[n,t]*has_unsupplied[s,n,t] >= unsupplied[s,n,t] - epsilon_cnt )
+    
+    @constraint(Upper(model), unsupplied_cnt, sum(data.probability .* sum( sum(has_unsupplied[:,n,t] for n = 1:data.network.N) for t in 1:data.T )) <= max_unsupplied )
+    
+    @objective(Lower(model), Min,
+        # Sum on scenarios
+        sum( data.probability[s] *
+            (   
+            # Sum on time steps
+            sum( 
+                (
+                # unsupplied costs
+                sum( data.scenario[s].unsupplied_cost * unsupplied[s,n,t] 
+                    for n in 1:data.network.N ) +
+                # production costs
+                sum( data.scenario[s].prod_cost[n][t] * prod[s,n,t] 
+                    for n in 1:data.network.N 
+                    if data.scenario[s].has_production[n] == 1) +
+                # flow cost
+                sum( data.scenario[s].epsilon_flow * flow[s,e,t] 
+                    for e in data.network.edges )
+                ) for t in 1:data.T
+            )
+            ) for s in 1:data.S
+        )
+    )
+
+    @objective(Upper(model), Min,
+        sum( data.invest_flow_cost[e] * invest_flow[e] for e in data.network.edges ) +
+        # Sum on scenarios
+        sum( data.probability[s] *
+            (   
+            # Sum on time steps
+            sum( 
+                (
+                # unsupplied costs
+                sum( data.scenario[s].unsupplied_cost * unsupplied[s,n,t] 
+                    for n in 1:data.network.N ) +
+                # production costs
+                sum( data.scenario[s].prod_cost[n][t] * prod[s,n,t] 
+                    for n in 1:data.network.N 
+                    if data.scenario[s].has_production[n] == 1) +
+                # flow cost
+                sum( data.scenario[s].epsilon_flow * flow[s,e,t] 
+                    for e in data.network.edges )
+                ) for t in 1:data.T
+            )
+            ) for s in 1:data.S
+        )
     )
 
     return BilevProblem(model,invest_flow,[], flow, prod, unsupplied, has_unsupplied)
@@ -119,4 +149,12 @@ function solve(bilev_prob, silent_mode)
     silent_mode == true ? set_silent(bilev_prob.model) : nothing
     timer = @elapsed optimize!(bilev_prob.model)
     return timer
+end
+
+"""
+function investment_cost
+    brief: computes the investment cost of the inner solution of stoch_prob
+"""
+function investment_cost(bilev_prob, data)
+    sum( data.invest_flow_cost[e] * value(bilev_prob.invest_flow[e]) for e in data.network.edges)
 end

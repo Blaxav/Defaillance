@@ -71,6 +71,7 @@ function create_invest_optim_problem(data)
         (data.scenario[s].has_production[n] == 1 ? prod[s,n,t] : 0) + 
         unsupplied[s,n,t] == data.scenario[s].demands[n,t]
         )
+
     
     # Constraint to lead heuristic
     @constraint(model, invest_cost,
