@@ -43,8 +43,10 @@ function create_invest_optim_problem
 function create_invest_optim_problem(data)
     model = Model(CPLEX.Optimizer)
 
-    # invest flow variables
+    # invest variables
     @variable(model, 0 <= invest_flow[e in data.network.edges])
+    @variable(model, 0 <= invest_prod[n in 1:data.network.N; 
+        data.scenario[1].has_production[n] == 1])
 
     # Flow variables
     @variable(model, flow[s in 1:data.S, e in data.network.edges, t in 1:data.T])
@@ -52,6 +54,11 @@ function create_invest_optim_problem(data)
     # Production variables
     @variable(model, 0 <= prod[s in 1:data.S, n in 1:data.network.N, t in 1:data.T; 
         data.scenario[s].has_production[n] == 1])
+    
+    @constraint(model, prod_max[s in 1:data.S, n in 1:data.network.N, t in 1:data.T; 
+        data.scenario[s].has_production[n] == 1],
+        prod[s,n,t] <= invest_prod[n])
+    
 
     # Loss of load variables
     @variable(model, 0 <= unsupplied[s in 1:data.S, i in 1:data.network.N, t in 1:data.T])
@@ -80,6 +87,8 @@ function create_invest_optim_problem(data)
     
     @objective(model, Min,
         sum( data.invest_flow_cost[e] * invest_flow[e] for e in data.network.edges ) +
+        sum( data.invest_prod_cost[n] * invest_prod[n] for n in data.network.N 
+            if data.scenario[1].has_production[n] == 1) +
         # Sum on scenarios
         sum( data.probability[s] *
             (   
@@ -102,7 +111,7 @@ function create_invest_optim_problem(data)
         )
     )
     
-    return StochasticProblem(model, invest_flow, [], flow, prod, unsupplied)
+    return StochasticProblem(model, invest_flow, invest_prod, flow, prod, unsupplied)
 end
 
 """

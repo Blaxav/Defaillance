@@ -49,9 +49,10 @@ unsupplied_cost = 50
 epsilon_flow = 0.1
 grad_prod = 0.7
 invest_cost_range = 50:100
+invest_prod_range = 50:100
 print("Sample data      ")
 @time data = investment_problem_data_generator(scenarios, network, time_steps, demand_range, 
-prod_cost_range, unsupplied_cost, epsilon_flow, grad_prod, invest_cost_range)
+prod_cost_range, unsupplied_cost, epsilon_flow, grad_prod, invest_cost_range, invest_prod_range)
 
 println()
 
