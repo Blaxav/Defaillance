@@ -33,6 +33,7 @@ struct BilevProblem
     flow
     prod
     unsupplied
+    spilled
     has_unsupplied
 end
 
@@ -48,7 +49,7 @@ function create_bilevel_invest_problem(data, epsilon_cnt, max_unsupplied)
     # invest variables
     @variable(Upper(model), 0 <= invest_flow[e in data.network.edges])
     @variable(Upper(model), 0 <= invest_prod[n in 1:data.network.N; 
-        data.scenario[1].has_production[n] == 1])
+        data.has_production[n] == 1])
 
     # Flow variables
     @variable(Lower(model), flow[s in 1:data.S, e in data.network.edges, t in 1:data.T])
@@ -60,10 +61,17 @@ function create_bilevel_invest_problem(data, epsilon_cnt, max_unsupplied)
     @constraint(Lower(model), prod_max[s in 1:data.S, n in 1:data.network.N, t in 1:data.T; 
         data.scenario[s].has_production[n] == 1],
         prod[s,n,t] <= invest_prod[n])
+    
+    @constraint(Lower(model), grad_positive[s in 1:data.S, n in 1:data.network.N, t in 1:data.T; 
+        data.has_production[n] == 1],
+        prod[s,n,t] <= (t > 1 ? prod[s,n,t-1] : prod[s,n,data.T]) + data.scenario[s].grad_prod*invest_prod[n] )
+    @constraint(Lower(model), grad_negative[s in 1:data.S, n in 1:data.network.N, t in 1:data.T; 
+        data.has_production[n] == 1],
+        prod[s,n,t] >= (t > 1 ? prod[s,n,t-1] : prod[s,n,data.T]) - data.scenario[s].grad_prod*invest_prod[n] )
 
     # Loss of load variables
     @variable(Lower(model), 0 <= unsupplied[s in 1:data.S, i in 1:data.network.N, t in 1:data.T])
-
+    @variable(Lower(model), 0 <= spilled[s in 1:data.S, i in 1:data.network.N, t in 1:data.T])
 
     # Flow bounds
     invest_init = 5
@@ -77,7 +85,7 @@ function create_bilevel_invest_problem(data, epsilon_cnt, max_unsupplied)
         sum(flow[s,e,t] for e in data.network.edges if e.to == n) - 
         sum(flow[s,e,t] for e in data.network.edges if e.from == n) + 
         (data.scenario[s].has_production[n] == 1 ? prod[s,n,t] : 0) + 
-        unsupplied[s,n,t] == data.scenario[s].demands[n,t]
+        unsupplied[s,n,t] - spilled[s,n,t] == data.scenario[s].demands[n,t]
         )
     
     @variable(Upper(model), has_unsupplied[s in 1:data.S, i in 1:data.network.N, t in 1:data.T], Bin)
@@ -115,8 +123,8 @@ function create_bilevel_invest_problem(data, epsilon_cnt, max_unsupplied)
 
     @objective(Upper(model), Min,
         sum( data.invest_flow_cost[e] * invest_flow[e] for e in data.network.edges ) +
-        sum( data.invest_prod_cost[n] * invest_prod[n] for n in data.network.N 
-            if data.scenario[1].has_production[n] == 1) +
+        sum( data.invest_prod_cost[n] * invest_prod[n] for n in 1:data.network.N 
+            if data.has_production[n] == 1) +
         # Sum on scenarios
         sum( data.probability[s] *
             (   
@@ -139,7 +147,7 @@ function create_bilevel_invest_problem(data, epsilon_cnt, max_unsupplied)
         )
     )
 
-    return BilevProblem(model,invest_flow, invest_prod, flow, prod, unsupplied, has_unsupplied)
+    return BilevProblem(model,invest_flow, invest_prod, flow, prod, unsupplied, spilled, has_unsupplied)
 end
 
 

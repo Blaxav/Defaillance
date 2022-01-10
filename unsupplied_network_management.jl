@@ -27,12 +27,15 @@ include("graphGenerator.jl")
 include("problemDataGenerator.jl")
 include("bilevelProblemGenerator.jl")
 include("stochasticProblemGenerator.jl")
+include("dataFromAntaresFormat.jl")
 
 #########################################################################################
 # User options
 #########################################################################################
+generate_graph_from_antares(".")
+exit()
 
-N = 15
+N = 30
 graph_density = 10
 seed = 0
 print("Generating graph ")
@@ -41,15 +44,15 @@ print("Generating graph ")
 
 seed >= 0 ? Random.seed!(seed) : nothing
 
-scenarios = 20
-time_steps = 50
-demand_range = 1:50
-prod_cost_range = 10:20
-unsupplied_cost = 50
+scenarios = 10
+time_steps = 168
+demand_range = 50:200
+prod_cost_range = 50:200
+unsupplied_cost = 10000
 epsilon_flow = 0.1
 grad_prod = 0.7
-invest_cost_range = 50:100
-invest_prod_range = 50:100
+invest_cost_range = 10000:80000
+invest_prod_range = 10000:80000
 print("Sample data      ")
 @time data = investment_problem_data_generator(scenarios, network, time_steps, demand_range, 
 prod_cost_range, unsupplied_cost, epsilon_flow, grad_prod, invest_cost_range, invest_prod_range)
@@ -75,7 +78,6 @@ println("unsupplied")
 unsupplied_cnt = [counting_unsupplied_scenario(stoch_prob, s, 0.0, data) for s in 1:data.S]
 println("    unsupplied totale = ", sum( data.probability .* unsupplied_cnt ))
 
-
 ########################################
 # Heuristic
 ########################################
@@ -84,7 +86,7 @@ println("Investment heuristic")
 @printf("%-15s%-15s%-15s%-15s%-10s\n", "Invest min", "Invest max", "Invest ctr","Obj", "unsupplied count")
 
 invest_min = 0.0
-invest_max = 1e6
+invest_max = 5*objective_value(stoch_prob.model)
 max_unsupplied = 0
 rhs = investment_cost(stoch_prob, data)
 
@@ -102,6 +104,7 @@ while invest_max - invest_min > 1e-6*invest_max
     global unsupplied_cnt = [ counting_unsupplied_scenario(stoch_prob, s, 0.0, data) for s in 1:data.S ]
     @printf("%-15.3f%-15.3f%-15.3f%-15.3f%-10.3f\n", invest_min, invest_max, rhs, 
         objective_value(stoch_prob.model), sum( data.probability .* unsupplied_cnt ) )
+
 end
 
 set_normalized_rhs(constraint_by_name(stoch_prob.model, "invest_cost"), 0)
