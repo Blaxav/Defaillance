@@ -23,9 +23,39 @@ catch
 end
 
 function generate_graph_from_antares(path)
-    dirs = filter(x -> isdir(joinpath(path, x)), readdir(path))
+    path = path * "/input2/links/"
 
+    nodes = []
+    edges = []
+    positions = []
+    x = 0
+    y = 0
+
+    dirs = filter(x -> isdir(joinpath(path, x)), readdir(path))
     for dir in dirs
-        println(dir)
+        push!(nodes, dir)
+        # Getting coordinates
+        open(path * "/../areas/" * dir * "/ui.ini") do f
+            for line in readlines(f)
+                if first(split(line, " ")) == "x"
+                    global x = parse(Int64, last(split(line, " ")))
+                elseif first(split(line, " ")) == "y"
+                    global y = parse(Int64, last(split(line, " ")))
+                end
+            end
+            push!(positions, (x,y))
+        end
     end
+    node_to_int = Dict(zip(nodes, 1:length(nodes)))
+    
+    for dir in dirs
+        for lk in readdir(path * dir)
+            if lk != "properties.ini"
+                zone = lowercase(lk[1:length(lk) - 4])
+                push!(edges, Edge(node_to_int[dir], node_to_int[zone]))
+            end
+        end
+    end
+
+    return Network(length(nodes), positions, edges, length(edges))
 end

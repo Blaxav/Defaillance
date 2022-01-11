@@ -32,7 +32,17 @@ include("dataFromAntaresFormat.jl")
 #########################################################################################
 # User options
 #########################################################################################
-generate_graph_from_antares(".")
+antaGraph = generate_graph_from_antares("C:/Users/xavbl/these/instances/OSMOSE_20210528")
+graph_plot_final = plot(antaGraph.positions, seriestype = :scatter, showaxis = false, grid = false, ticks = false, legend = false)
+for e in antaGraph.edges
+    plot!([antaGraph.positions[e.from][1], antaGraph.positions[e.to][1]], 
+    [antaGraph.positions[e.from][2], antaGraph.positions[e.to][2]])
+end
+
+display(graph_plot_final)
+println("Press a key to continue")
+readline()
+
 exit()
 
 N = 30
