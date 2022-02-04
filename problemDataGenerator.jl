@@ -73,7 +73,7 @@ function sample_network_data(scenarios, network, time_steps, demand_range,
 
         # Sampling production nodes    
         prod_cost = Dict(zip(
-            [i for i in 1:N if has_production[i] == 1],
+            [i for i in 1:network.N if has_production[i] == 1],
             [rand(prod_cost_range, time_steps) for i in 1:sum(has_production)]
             ))
 
@@ -83,10 +83,13 @@ function sample_network_data(scenarios, network, time_steps, demand_range,
     return data_flow
 end
 
+
 function generate_probabilities(n_scenarios)
     proba = rand(1:100, n_scenarios)
     return (1/sum(proba)) .* proba
 end
+
+
 
 function investment_problem_data_generator(scenarios, network, time_steps, demand_range, 
     prod_cost_range, unsupplied_cost, epsilon_flow, grad_prod, invest_cost_range, invest_prod_range)

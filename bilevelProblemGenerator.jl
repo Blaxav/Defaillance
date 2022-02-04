@@ -91,9 +91,9 @@ function create_bilevel_invest_problem(data, epsilon_cnt, max_unsupplied)
     @variable(Upper(model), has_unsupplied[s in 1:data.S, i in 1:data.network.N, t in 1:data.T], Bin)
 
     # Variables behaviour
-    @constraint(Upper(model), unsupplied_to_zero[s in 1:data.S, n in 1:data.network.N, t in data.T],
+    @constraint(Upper(model), unsupplied_to_zero[s in 1:data.S, n in 1:data.network.N, t in 1:data.T],
         has_unsupplied[s,n,t] <= (1/epsilon_cnt)*unsupplied[s,n,t] )
-    @constraint(Upper(model), unsupplied_to_one[s in 1:data.S, n in 1:data.network.N, t in data.T],
+    @constraint(Upper(model), unsupplied_to_one[s in 1:data.S, n in 1:data.network.N, t in 1:data.T],
         2*data.scenario[s].demands[n,t]*has_unsupplied[s,n,t] >= unsupplied[s,n,t] - epsilon_cnt )
     
     @constraint(Upper(model), unsupplied_cnt, sum(data.probability .* sum( sum(has_unsupplied[:,n,t] for n = 1:data.network.N) for t in 1:data.T )) <= max_unsupplied )

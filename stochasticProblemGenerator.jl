@@ -7,6 +7,7 @@ if "--install-packages" in ARGS
     Pkg.add("Plots")
     Pkg.add("JuMP")
     Pkg.add("CPLEX")
+    Pkg.add("Gurobi")
     Pkg.add("Dualization")
     Pkg.add("BilevelJuMP")
     Pkg.build("CPLEX")
@@ -17,6 +18,7 @@ try
     using Plots
     using JuMP, CPLEX, BilevelJuMP
     using Printf
+    using Gurobi
 catch
     println("ERROR : Some recquired packages not found.")
     println("        Run with option --install-packages to install them")
@@ -42,7 +44,7 @@ function create_invest_optim_problem
         It is possible to invest on every edge of the graph
 """
 function create_invest_optim_problem(data)
-    model = Model(CPLEX.Optimizer)
+    model = Model(Gurobi.Optimizer)
 
     # invest variables
     @variable(model, 0 <= invest_flow[e in data.network.edges])
@@ -124,13 +126,16 @@ function create_invest_optim_problem(data)
     return StochasticProblem(model, invest_flow, invest_prod, flow, prod, unsupplied, spilled)
 end
 
+
 """
 function counting_unsupplied_scenario
     brief: Computes the number of nodes which loss of load for a given scenario after optimization
 """
 function counting_unsupplied_scenario(stoch_prob, scenario, epsilon, data)
-    return sum( value(stoch_prob.unsupplied[scenario,n,t]) > epsilon ? 1 : 0 for n in 1:data.network.N, t in 1:data.T)
+    return sum( value(stoch_prob.unsupplied[scenario,n,t]) > epsilon ? 1 : 0 for n in 1:data.network.N, t in 1:data.T )
 end
+
+
 
 """
 function add_unsupplied_counter_constraint
@@ -147,14 +152,38 @@ function add_unsupplied_counter_constraint(stoch_prob, max_unsupplied, epsilon_c
     @variable(stoch_prob.model, has_unsupplied[s in 1:data.S, i in 1:data.network.N, t in 1:data.T], Bin)
 
     # Variables behaviour
-    @constraint(stoch_prob.model, unsupplied_to_zero[s in 1:data.S, n in 1:data.network.N, t in data.T],
+    @constraint(stoch_prob.model, unsupplied_to_zero[s in 1:data.S, n in 1:data.network.N, t in 1:data.T],
         has_unsupplied[s,n,t] <= (1/epsilon_cnt)*stoch_prob.unsupplied[s,n,t] )
-    @constraint(stoch_prob.model, unsupplied_to_one[s in 1:data.S, n in 1:data.network.N, t in data.T],
+    @constraint(stoch_prob.model, unsupplied_to_one[s in 1:data.S, n in 1:data.network.N, t in 1:data.T],
         2*data.scenario[s].demands[n,t]*has_unsupplied[s,n,t] >= stoch_prob.unsupplied[s,n,t] - epsilon_cnt )
     
     @constraint(stoch_prob.model, unsupplied_cnt, sum(data.probability .* sum( sum(has_unsupplied[:,n,t] for n = 1:data.network.N) for t in 1:data.T )) <= max_unsupplied )
     return has_unsupplied, unsupplied_cnt
 end
+
+
+"""
+function add_unsupplied_counter_constraint
+    brief: Adds a binary variable on each node to say if it has unsupplied energy
+    args:
+        stoch_prob : an instance of StochasticProblem
+        max_unsupplied: maximum number of nodes with unsupplied enery in an optimal solution
+        data : an instance of StochasticProblemData
+    returns: references to new variables and new constraint
+"""
+function add_unsupplied_counter_variables(stoch_prob, max_unsupplied, epsilon_cnt, data)
+   
+    @variable(stoch_prob.model, has_unsupplied[s in 1:data.S, i in 1:data.network.N, t in 1:data.T], Bin)
+
+    # Variables behaviour
+    @constraint(stoch_prob.model, unsupplied_to_zero[s in 1:data.S, n in 1:data.network.N, t in 1:data.T],
+        has_unsupplied[s,n,t] <= (1/epsilon_cnt)*stoch_prob.unsupplied[s,n,t] )
+    @constraint(stoch_prob.model, unsupplied_to_one[s in 1:data.S, n in 1:data.network.N, t in 1:data.T],
+        2*data.scenario[s].demands[n,t]*has_unsupplied[s,n,t] >= stoch_prob.unsupplied[s,n,t] - epsilon_cnt )
+    
+    return has_unsupplied
+end
+
 
 """
 function solve
@@ -165,13 +194,79 @@ function solve(stoch_prob, silent_mode)
 
     silent_mode == true ? set_silent(stoch_prob.model) : nothing
     timer = @elapsed optimize!(stoch_prob.model)
+
+    # Always unset silent before leaving
+    unset_silent(stoch_prob.model)
+
     return timer
 end
+
 
 """
 function investment_cost
     brief: computes the investment cost of the inner solution of stoch_prob
 """
 function investment_cost(stoch_prob, data)
-    sum( data.invest_flow_cost[e] * value(stoch_prob.invest_flow[e]) for e in data.network.edges)
+    sum( data.invest_flow_cost[e] * value(stoch_prob.invest_flow[e]) for e in data.network.edges) +
+    sum( data.invest_prod_cost[n] * value(stoch_prob.invest_prod[n]) for n in 1:data.network.N 
+            if data.has_production[n] == 1)
+end
+
+
+"""
+function investment_heuristic
+    brief : heuristic to force investment in order to set unsatisfied demands under
+        a given value
+"""
+function investment_heuristic(stoch_prob, data, max_unsupplied, relative_gap, silent_mode, print_log)
+
+    print_log == true ? @printf("%-20s%-20s%-20s%-20s%-20s%-20s%-15s%-20s%-20s\n", "Invest_min", "Invest_max", "Gap", "Constraint value", 
+            "Invest cost", "Objective", "Unsupplied", "Optim time", "Counting time" ) : nothing
+
+    # Initialization
+    t_optim = @elapsed solve(stoch_prob, silent_mode)
+    t_counting = @elapsed unsupplied_cnt = [counting_unsupplied_scenario(stoch_prob, s, 0.0, data) for s in 1:data.S]
+
+    invest_min = 0.0
+    invest_max = 10*investment_cost(stoch_prob, data)
+
+    # Setting initial invest min and max
+    if sum( data.probability .* unsupplied_cnt ) > max_unsupplied
+        global invest_min = investment_cost(stoch_prob, data)
+    else
+        global invest_max = investment_cost(stoch_prob, data)
+    end
+    alpha = 0.5
+    rhs = 0
+
+    print_log == true ? @printf("%-20.6e%-20.6e%-20.2e%-20.6e%-20.6e%-20.6e%-15.2f%-20.6e%-20.6e\n", invest_min, invest_max, 
+            (invest_max - invest_min)/invest_max, rhs, investment_cost(stoch_prob, data),
+            objective_value(stoch_prob.model), sum( data.probability .* unsupplied_cnt ), 
+            t_optim, t_counting ) : nothing
+
+    while invest_max - invest_min > max(relative_gap*invest_max,1e-6)
+
+        global rhs = (1-alpha)*invest_max + alpha*invest_min
+
+        set_normalized_rhs(constraint_by_name(stoch_prob.model, "invest_cost"), rhs)
+    
+        global t_optim = @elapsed solve(stoch_prob, silent_mode)
+        global t_counting = @elapsed global unsupplied_cnt = [ counting_unsupplied_scenario(stoch_prob, s, 0.0, data) for s in 1:data.S ]
+        
+
+        if sum( (data.probability .* unsupplied_cnt) ) > max_unsupplied
+            global invest_min = rhs
+        else
+            global invest_max = rhs
+        end
+
+        print_log == true ? @printf("%-20.6e%-20.6e%-20.2e%-20.6e%-20.6e%-20.6e%-15.2f%-20.6e%-20.6e\n", invest_min, invest_max, 
+            (invest_max - invest_min)/invest_max, rhs, investment_cost(stoch_prob, data),
+            objective_value(stoch_prob.model), sum( data.probability .* unsupplied_cnt ), 
+            t_optim, t_counting ) : nothing
+    
+    end
+    
+    set_normalized_rhs(constraint_by_name(stoch_prob.model, "invest_cost"), 0)
+
 end

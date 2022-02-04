@@ -119,7 +119,7 @@ function sample_edges_to_connexity(N, positions, distances)
     edges = Vector{Edge}()
     
     Dmax = 0
-    while is_graph_connex(N, edges) == false && Dmax < 30
+    while is_graph_connex(N, edges) == false
         
         Dmax += 1
         for i in 1:N, j in (i+1):N
