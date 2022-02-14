@@ -33,101 +33,97 @@ include("dataFromAntaresFormat.jl")
 #########################################################################################
 # User options
 #########################################################################################
-println()
-N = 20
-graph_density = 10
-seed = 1
-print("Generating graph ")
-@time network = create_network(N, graph_density, seed, plotGraph = false, drawGraph = true)
+N = 15
+graph_density = 30
+#seed = 1
+
+for seed in 1:50
+    println()
+    println("Seed ", seed)
+    time_graph = @elapsed network = create_network(N, graph_density, seed, plotGraph = false, drawGraph = true)
 
 
-seed >= 0 ? Random.seed!(seed) : nothing
+    seed >= 0 ? Random.seed!(seed) : nothing
 
-scenarios = 1
-time_steps = 24
-demand_range = 50:400
-prod_cost_range = 200:800
-unsupplied_cost = 1000
-epsilon_flow = 0.1
-grad_prod = 0.1
-invest_cost_range = 1000:8000
-invest_prod_range = 1000:8000
-print("Sample data      ")
-@time data = investment_problem_data_generator(scenarios, network, time_steps, demand_range, 
-prod_cost_range, unsupplied_cost, epsilon_flow, grad_prod, invest_cost_range, invest_prod_range)
+    scenarios = 1
+    time_steps = 5
+    demand_range = 50:400
+    prod_cost_range = 100:200
+    unsupplied_cost = 120
+    epsilon_flow = 0.1
+    grad_prod = 0.01
+    invest_cost_range = 300:1200
+    invest_prod_range = 300:1200
+    time_data = @elapsed data = investment_problem_data_generator(scenarios, network, time_steps, demand_range, 
+    prod_cost_range, unsupplied_cost, epsilon_flow, grad_prod, invest_cost_range, invest_prod_range)
 
-println()
+    ########################################
+    # Stochastic problem
+    ########################################
+    time_stoch_prob_creation = @elapsed stoch_prob = create_invest_optim_problem(data)
 
-########################################
-# Stochastic problem
-########################################
-println()
-println("#########################################################################################")
-print("Create stochastic model     ")
-@time stoch_prob = create_invest_optim_problem(data)
+    time_solve_stoch_prob = @elapsed solve(stoch_prob, true)
 
-print("Solving model    ")
-@time solve(stoch_prob, true)
+    val_stoch_prob = objective_value(stoch_prob.model)
+    invest_stoch_prob = investment_cost(stoch_prob, data)
 
-println()
-println("Obj : ", objective_value(stoch_prob.model))
-println("Invest solution cost = ", investment_cost(stoch_prob, data))  
-println("unsupplied")
-@time unsup = value.(stoch_prob.unsupplied)
-@time unsupplied_cnt = [counting_unsupplied_scenario(stoch_prob, s, 0.0, data) for s in 1:data.S]
-println("    unsupplied totale = ", sum( data.probability .* unsupplied_cnt ))
+    unsupplied_cnt = [counting_unsupplied_scenario(stoch_prob, s, 0.0, data) for s in 1:data.S]
+    unsup_stoch_prob = sum( data.probability .* unsupplied_cnt )
 
+    println()
+    @printf("%-20s%-20s%-15s%-15s\n", "Invest cost", "Total cost", "Unsupplied", "Time")
+    @printf("%-20.4e%-20.4e%-15.2f%-15.3f\n", invest_stoch_prob, val_stoch_prob, unsup_stoch_prob, time_solve_stoch_prob)
 
-########################################
-# Heuristic
-########################################
-println()
-println()
-println("#########################################################################################")
-println("Heuristic ")
-max_unsupplied = 3
-@time investment_heuristic(stoch_prob, data, max_unsupplied, 1e-6, true, false)
+    ########################################
+    # Heuristic
+    ########################################
+    max_unsupplied = 3
+    time_heuristic = @elapsed invest_heuristic, val_heuristic = investment_heuristic(stoch_prob, data, max_unsupplied, 1e-6, true, false)
 
-########################################
-# N hours counting constraint
-########################################
-println()
-println("#########################################################################################")
-print("Solving stochastic model with binary variables ")
-epsilon_cnt = 0.0001
-has_unsupplied, unsupplied_cnt_cstr = add_unsupplied_counter_constraint(stoch_prob, max_unsupplied, epsilon_cnt, data)
+    @printf("%-20.4e%-20.4e%-15.2f%-15.3f\n", invest_heuristic, val_heuristic, max_unsupplied, time_heuristic)
 
-@time solve(stoch_prob, true)
+    ########################################
+    # N hours counting constraint
+    ########################################
+    epsilon_cnt = 0.0001
+    has_unsupplied, unsupplied_cnt_cstr = add_unsupplied_counter_constraint(stoch_prob, max_unsupplied, epsilon_cnt, data)
 
-println()
-println("Obj : ", objective_value(stoch_prob.model))
+    time_mip = @elapsed solve(stoch_prob, true)
 
-println("Invest solution cost = ", investment_cost(stoch_prob, data) )
-println("has_unsupplied")
-has_unsupplied_cnt = [sum( value(has_unsupplied[s,n,t]) for n in 1:data.network.N, t in 1:data.T) for s in 1:scenarios]
-println("    unsupplied totale = ", sum( (data.probability .* has_unsupplied_cnt) ))
+    val_mip =  objective_value(stoch_prob.model)
+    invest_mip = investment_cost(stoch_prob, data)
 
+    has_unsupplied_cnt = [sum( value(has_unsupplied[s,n,t]) for n in 1:data.network.N, t in 1:data.T) for s in 1:scenarios]
+    unsup_mip = sum( (data.probability .* has_unsupplied_cnt) )
 
-########################################
-# Bilevel problem
-########################################
-println()
-println("#########################################################################################")
-print("Create bilevel model     ")
-@time bilev = create_bilevel_invest_problem(data, epsilon_cnt, max_unsupplied)
+    @printf("%-20.4e%-20.4e%-15.2f%-15.3f\n", invest_mip, val_mip, unsup_mip, time_mip)
 
-print("Solving bilevel model     ")
-@time solve(bilev, true)
+    ########################################
+    # Bilevel problem
+    ########################################
+    time_bilev_prob_creation = @elapsed bilev = create_bilevel_invest_problem(data, epsilon_cnt, max_unsupplied)
+    time_bilev = @elapsed solve(bilev, true)
 
-println("Obj bilevel : ", objective_value(bilev.model))
-println("Invest solution cost = ", investment_cost(bilev, data))    
-println("unsupplied")
-unsupplied_cnt = [ sum([ value(bilev.has_unsupplied[s,n,t]) for n in 1:network.N, t in 1:data.T]) for s in 1:scenarios]
-for s in 1:scenarios
-    println("    Scenario ", s, " n_unsupplied = ", unsupplied_cnt[s])
+    val_bilev = objective_value(bilev.model)
+    invest_bilev = investment_cost(bilev, data)
+
+    unsupplied_cnt = [ sum([ value(bilev.has_unsupplied[s,n,t]) for n in 1:network.N, t in 1:data.T]) for s in 1:scenarios]
+    unsup_bilev = sum( (data.probability .* unsupplied_cnt) )
+
+    @printf("%-20.4e%-20.4e%-15.2f%-15.3f\n", invest_bilev, val_bilev, unsup_bilev, time_bilev)
+
+    @printf("Bilevel-MIP Gap = %-.6e\n" , val_bilev - val_mip)
+    if val_bilev - val_mip > 1e-2 * val_mip
+        println("####################################")
+        println("Instance found for seed = ", seed)
+        println("####################################")
+    end
 end
-println("    unsupplied totale = ", sum( (data.probability .* unsupplied_cnt) ))
-println()
+
+
+
+
+
 
 #########################################################################################
 #########################################################################################

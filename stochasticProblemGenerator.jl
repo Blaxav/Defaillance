@@ -228,7 +228,10 @@ function investment_heuristic(stoch_prob, data, max_unsupplied, relative_gap, si
     t_counting = @elapsed unsupplied_cnt = [counting_unsupplied_scenario(stoch_prob, s, 0.0, data) for s in 1:data.S]
 
     invest_min = 0.0
-    invest_max = 10*investment_cost(stoch_prob, data)
+    invest_max = 100*objective_value(stoch_prob.model)
+
+    println(invest_min, "  ", invest_max)
+    global best_obj = 0.0
 
     # Setting initial invest min and max
     if sum( data.probability .* unsupplied_cnt ) > max_unsupplied
@@ -238,6 +241,8 @@ function investment_heuristic(stoch_prob, data, max_unsupplied, relative_gap, si
     end
     alpha = 0.5
     rhs = 0
+
+    println(invest_min, "  ", invest_max)
 
     print_log == true ? @printf("%-20.6e%-20.6e%-20.2e%-20.6e%-20.6e%-20.6e%-15.2f%-20.6e%-20.6e\n", invest_min, invest_max, 
             (invest_max - invest_min)/invest_max, rhs, investment_cost(stoch_prob, data),
@@ -258,6 +263,7 @@ function investment_heuristic(stoch_prob, data, max_unsupplied, relative_gap, si
             global invest_min = rhs
         else
             global invest_max = rhs
+            global best_obj = objective_value(stoch_prob.model)
         end
 
         print_log == true ? @printf("%-20.6e%-20.6e%-20.2e%-20.6e%-20.6e%-20.6e%-15.2f%-20.6e%-20.6e\n", invest_min, invest_max, 
@@ -266,7 +272,7 @@ function investment_heuristic(stoch_prob, data, max_unsupplied, relative_gap, si
             t_optim, t_counting ) : nothing
     
     end
-    
-    set_normalized_rhs(constraint_by_name(stoch_prob.model, "invest_cost"), 0)
 
+    set_normalized_rhs(constraint_by_name(stoch_prob.model, "invest_cost"), 0)
+    return invest_max, best_obj
 end
