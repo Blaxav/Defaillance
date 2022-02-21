@@ -60,7 +60,7 @@ function create_master_benders_problem(data)
     # invest variables
     @variable(model, 0 <= invest_flow[e in data.network.edges])
     @variable(model, 0 <= invest_prod[n in 1:data.network.N; 
-        data.has_production[n] == 1], Int)
+        data.has_production[n] == 1])
     
     # Constraint to lead heuristic
     @constraint(model, invest_cost,
@@ -104,14 +104,14 @@ function create_benders_subproblem(data, s)
     # Production constraints
     @constraint(model, prod_max[n in 1:data.network.N, t in 1:data.T; 
         data.has_production[n] == 1],
-        prod[n,t] <= 50*invest_prod[n])
+        prod[n,t] <= invest_prod[n])
     
     @constraint(model, grad_positive[n in 1:data.network.N, t in 1:data.T; 
         data.has_production[n] == 1],
-        prod[n,t] <= (t > 1 ? prod[n,t-1] : prod[n,data.T]) + data.scenario[s].grad_prod*50*invest_prod[n] )
+        prod[n,t] <= (t > 1 ? prod[n,t-1] : prod[n,data.T]) + data.scenario[s].grad_prod*invest_prod[n] )
     @constraint(model, grad_negative[n in 1:data.network.N, t in 1:data.T; 
         data.has_production[n] == 1],
-        prod[n,t] >= (t > 1 ? prod[n,t-1] : prod[n,data.T]) - data.scenario[s].grad_prod*50*invest_prod[n] )
+        prod[n,t] >= (t > 1 ? prod[n,t-1] : prod[n,data.T]) - data.scenario[s].grad_prod*invest_prod[n] )
 
     # Loss of load variables
     @variable(model, 0 <= unsupplied[i in 1:data.network.N, t in 1:data.T])
@@ -214,6 +214,17 @@ function benders_sequential(master, subproblems, data)
             ))
     global iteration = 0
     global alpha = 0.5
+
+
+    global grad_flow = Dict(zip(
+            data.network.edges,
+            [0.0 for e in data.network.edges]
+            ))
+    global grad_prod = Dict(zip(
+        [i for i in 1:network.N if data.scenario[1].has_production[i] == 1],
+        [0.0 for i in 1:sum(data.scenario[1].has_production)]
+        ))
+
     
     while best_UB - LB > 1e-6
     
@@ -240,23 +251,36 @@ function benders_sequential(master, subproblems, data)
         fix_first_stage_candidate(subproblems, separation_flow, separation_prod, data)
     
         local UB = investment_cost(separation_flow, separation_prod, data)
+        local rhs = 0.0
         #println(UB)
         # 4. Solve Subproblems and get subprgradients
         for s in 1:data.S
             solve(subproblems[s], true)
-            
     
             UB += data.probability[s] * objective_value(subproblems[s].model)
+            rhs += data.probability[s] * objective_value(subproblems[s].model)
             #println(UB)
-            global grad_flow = reduced_cost.(subproblems[s].invest_flow)
-            global grad_prod = reduced_cost.(subproblems[s].invest_prod)
-            # Build cut
-            @constraint(benders_master.model, benders_master.theta[s] >= 
-                objective_value(subproblems[s].model)   +
-                sum(grad_flow[e] * (benders_master.invest_flow[e] - separation_flow[e]) for e in data.network.edges) +
-                sum(grad_prod[n] * (benders_master.invest_prod[n] - separation_prod[n]) for n in 1:data.network.N if data.scenario[s].has_production[n] == 1)
-            )
+            if s == 1
+                global grad_flow = data.probability[s] * reduced_cost.(subproblems[s].invest_flow)
+                global grad_prod = data.probability[s] * reduced_cost.(subproblems[s].invest_prod)
+            else
+                for e in data.network.edges
+                    global grad_flow[e] += data.probability[s] * reduced_cost(subproblems[s].invest_flow[e])
+                end
+                for n in 1:data.network.N
+                    if data.scenario[s].has_production[n] == 1
+                        global grad_prod[n] += data.probability[s] * reduced_cost(subproblems[s].invest_prod[n])
+                    end
+                end
+            end
         end
+
+        # Build cut
+        @constraint(benders_master.model, benders_master.theta_sum >= 
+        rhs +
+        sum(grad_flow[e] * (benders_master.invest_flow[e] - separation_flow[e]) for e in data.network.edges) +
+        sum(grad_prod[n] * (benders_master.invest_prod[n] - separation_prod[n]) for n in 1:data.network.N if data.scenario[1].has_production[n] == 1)
+        )
     
         if UB < best_UB
             global alpha = min(1.0, 1.2*alpha)
@@ -268,14 +292,16 @@ function benders_sequential(master, subproblems, data)
         end
     
         global LB = objective_value(master.model)
-        if iteration % 10 == 0
-            @printf("%-10i%-15.3e%-15.3e%-15.3e%15.3f\n", iteration, LB, best_UB, best_UB-LB, alpha)
+        if iteration % 10 == 0 || best_UB - LB <= 1e-6
+            @printf("%-10i%-20.6e%-20.6e%-15.3e%15.3f\n", iteration, LB, best_UB, best_UB-LB, alpha)
         end
     end
 end
 
 function benders_lazy_constraint_callback(cb_data)
+
     global iter_num
+    global best_bound
     iter_num += 1
     #println("Iteration number = ", iter_num)
 
@@ -288,54 +314,180 @@ function benders_lazy_constraint_callback(cb_data)
     theta_current = callback_value.(Ref(cb_data), benders_master.theta)
     theta_total_current = callback_value(cb_data, benders_master.theta_sum)
 
+
     # Fix first stage
     fix_first_stage_candidate(subproblems, invest_flow_current, invest_prod_current, data)
 
+
     local UB = investment_cost(invest_flow_current, invest_prod_current, data)
+    local rhs = 0.0
+
     # 4. Solve Subproblems and get subprgradients
     for s in 1:data.S
         solve(subproblems[s], true)
 
         UB += data.probability[s] * objective_value(subproblems[s].model)
         
-        global grad_flow = reduced_cost.(subproblems[s].invest_flow)
-        global grad_prod = reduced_cost.(subproblems[s].invest_prod)
+        rhs += data.probability[s] * objective_value(subproblems[s].model)
+        #println(UB)
+        if s == 1
+            global grad_flow = data.probability[s] * reduced_cost.(subproblems[s].invest_flow)
+            global grad_prod = data.probability[s] * reduced_cost.(subproblems[s].invest_prod)
+        else
+            for e in data.network.edges
+                global grad_flow[e] += data.probability[s] * reduced_cost(subproblems[s].invest_flow[e])
+            end
+            for n in 1:data.network.N
+                if data.scenario[s].has_production[n] == 1
+                    global grad_prod[n] += data.probability[s] * reduced_cost(subproblems[s].invest_prod[n])
+                end
+            end
+        end
+    end
+
+
+
+
+    if UB < best_bound
+        global best_bound = UB
+        println("BOUND FOUND ! ", best_bound)
+    #    println("test bound : ", MOI.get(benders_master.model, MOI.ObjectiveBound()))
+    #    MOI.set(benders_master.model, MOI.ObjectiveBound(), best_bound)
+    end
+
+    if rhs > theta_total_current + 1e-3
         # Build cut
         new_optimality_cons = @build_constraint(
-            benders_master.theta[s] >= 
-            objective_value(subproblems[s].model)   +
+            benders_master.theta_sum >= 
+            rhs +
             sum(grad_flow[e] * (benders_master.invest_flow[e] - invest_flow_current[e]) for e in data.network.edges) +
-            sum(grad_prod[n] * (benders_master.invest_prod[n] - invest_prod_current[n]) for n in 1:data.network.N 
-                if data.scenario[s].has_production[n] == 1))
+            sum(grad_prod[n] * (benders_master.invest_prod[n] - invest_prod_current[n]) for n in 1:data.network.N if data.scenario[1].has_production[n] == 1)
+            )
         MOI.submit(
             benders_master.model,
             MOI.LazyConstraint(cb_data),
             new_optimality_cons,
         )
+
+    else
+        println("No cut here !")
     end
     
+end
+
+
+function benders_user_cut_callback(cb_data)
+    global user_iter
+    user_iter += 1
+    #println("Iteration number = ", user_iter)
+
+    # Get master problem solution
+    #invest_prod_current = callback_value.(Ref(cb_data), benders_master.invest_prod)
+    invest_prod_current = Dict{Int, Float64}()
+    for n in 1:data.network.N
+        if data.scenario[1].has_production[n] == 1
+            invest_prod_current[n] = round(Int, callback_value(cb_data, benders_master.invest_prod[n]))
+        end
+    end
+    #println("User : ", invest_prod_current)
+
+    invest_flow_current = Dict{Edge, Float64}()
+    for e in data.network.edges
+        invest_flow_current[e] = callback_value(cb_data, benders_master.invest_flow[e])
+    end
+    theta_current = callback_value.(Ref(cb_data), benders_master.theta)
+    theta_total_current = callback_value(cb_data, benders_master.theta_sum)
+
+    # Fix first stage
+    fix_first_stage_candidate(subproblems, invest_flow_current, invest_prod_current, data)
+
+    #println("Current integer sol : ",   invest_prod_current)
+
+    local UB = investment_cost(invest_flow_current, invest_prod_current, data)
+    local rhs = 0.0
+
+    # 4. Solve Subproblems and get subprgradients
+    for s in 1:data.S
+        solve(subproblems[s], true)
+
+        UB += data.probability[s] * objective_value(subproblems[s].model)
+        
+        rhs += data.probability[s] * objective_value(subproblems[s].model)
+        #println(UB)
+        if s == 1
+            global grad_flow = data.probability[s] * reduced_cost.(subproblems[s].invest_flow)
+            global grad_prod = data.probability[s] * reduced_cost.(subproblems[s].invest_prod)
+        else
+            for e in data.network.edges
+                global grad_flow[e] += data.probability[s] * reduced_cost(subproblems[s].invest_flow[e])
+            end
+            for n in 1:data.network.N
+                if data.scenario[s].has_production[n] == 1
+                    global grad_prod[n] += data.probability[s] * reduced_cost(subproblems[s].invest_prod[n])
+                end
+            end
+        end
+    end
+
+    #println("User UB = ", UB)
+
+    # Build cut
+    if rhs > theta_total_current + 1e3
+        new_optimality_cons = @build_constraint(
+            benders_master.theta_sum >= 
+            rhs +
+            sum(grad_flow[e] * (benders_master.invest_flow[e] - invest_flow_current[e]) for e in data.network.edges) +
+            sum(grad_prod[n] * (benders_master.invest_prod[n] - invest_prod_current[n]) for n in 1:data.network.N if data.scenario[1].has_production[n] == 1)
+            )
+        MOI.submit(
+            benders_master.model,
+            MOI.UserCut(cb_data),
+            new_optimality_cons,
+        )
+    else
+        println("No cut here !")
+    end
+    
+end
+
+function my_heuristic_callback(cb_data)
+
+    #println("Submit heuristic solution")
+    invest_prod_current = callback_value.(Ref(cb_data), benders_master.invest_prod)
+    
+    invest_heuristic = [ round(Int, v) for v in invest_prod_current ]
+    #println(" Vector de l'heuristique : ", invest_heuristic)
+    prod_vars = [benders_master.invest_prod[n] for n in 1:data.network.N if data.scenario[1].has_production[n] == 1]
+
+    status = MOI.submit(
+        benders_master.model, 
+        MOI.HeuristicSolution(cb_data), 
+        prod_vars, 
+        invest_heuristic
+    )
+    #println("I submitted a heuristic solution, and the status was: ", status)
 end
 
 #########################################################################################
 # User options
 #########################################################################################
-N = 25
-graph_density = 30
-seed = 5
+N = 3
+graph_density = 70
+seed = 0
 time_graph = @elapsed network = create_network(N, graph_density, seed, plotGraph = false, drawGraph = true)
 
 
 seed >= 0 ? Random.seed!(seed) : nothing
 
-scenarios = 3
-time_steps = 10
-demand_range = 50:400
-prod_cost_range = 100:400
+scenarios = 1
+time_steps = 1
+demand_range = 1:10
+prod_cost_range = 10:40
 unsupplied_cost = 1000
-epsilon_flow = 0.1
-grad_prod = 0.3
-invest_cost_range = 800:2000
-invest_prod_range = 8000:20000
+epsilon_flow = 1.0
+grad_prod = 1.0
+invest_cost_range = 500:1000
+invest_prod_range = 500:1000
 time_data = @elapsed data = investment_problem_data_generator(scenarios, network, time_steps, demand_range, 
 prod_cost_range, unsupplied_cost, epsilon_flow, grad_prod, invest_cost_range, invest_prod_range)
 
@@ -372,6 +524,18 @@ MOI.set(
     benders_lazy_constraint_callback,
 )
 
+MOI.set(
+    benders_master.model,
+    MOI.UserCutCallback(),
+    benders_user_cut_callback,
+)
+
+MOI.set(
+    benders_master.model,
+    MOI.HeuristicCallback(),
+    my_heuristic_callback,
+)
+
 
 # Two phases resolution
 # 1. LP relaxation
@@ -379,13 +543,28 @@ unset_integer.(benders_master.invest_prod)
 
 benders_sequential(benders_master, subproblems, data)
 
+println(value.(benders_master.invest_prod))
+
+
+####################################################
+##################### STOP HERE ####################
+####################################################
+exit()
+
 # 2. MIP problem
 set_integer.(benders_master.invest_prod)
 
 iter_num = 0
+user_iter = 0
+heuristic_iter = 0
+best_bound = 1e12
 unset_silent(benders_master.model)
 optimize!(benders_master.model)
 
 
 #@time benders_sequential(benders_master, subproblems, data)
+
+println("Lazy calls : ", iter_num)
+println("User callback calls :", user_iter)
+println("Heuristic calls : ", heuristic_iter)
 
