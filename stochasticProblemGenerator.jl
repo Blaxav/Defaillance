@@ -44,7 +44,8 @@ function create_invest_optim_problem
         It is possible to invest on every edge of the graph
 """
 function create_invest_optim_problem(data)
-    model = Model(Gurobi.Optimizer)
+    #model = Model(Gurobi.Optimizer)
+    model = Model(() -> Gurobi.Optimizer(GRB_ENV))
 
     # invest variables
     @variable(model, 0 <= invest_flow[e in data.network.edges])
@@ -75,11 +76,10 @@ function create_invest_optim_problem(data)
     @variable(model, 0 <= spilled[s in 1:data.S, i in 1:data.network.N, t in 1:data.T])
 
     # Flow bounds
-    invest_init = 5
     @constraint(model, flow_max_positive[s in 1:data.S, e in data.network.edges, t in 1:data.T], 
-        flow[s,e,t] <= invest_init + invest_flow[e])
+        flow[s,e,t] <= data.scenario[s].flow_init[e] + invest_flow[e])
     @constraint(model, flow_max_negative[s in 1:data.S, e in data.network.edges, t in 1:data.T], 
-        -(invest_flow[e] + invest_init) <= flow[s,e,t])
+        -(invest_flow[e] + data.scenario[s].flow_init[e]) <= flow[s,e,t])
 
     
     @constraint(model, flow_conservation[s in 1:data.S, n in 1:data.network.N, t in 1:data.T], 
@@ -115,7 +115,7 @@ function create_invest_optim_problem(data)
                     for n in 1:data.network.N 
                     if data.scenario[s].has_production[n] == 1) +
                 # flow cost
-                sum( data.scenario[s].epsilon_flow * flow[s,e,t] 
+                sum( data.scenario[s].flow_cost[e] * flow[s,e,t] 
                     for e in data.network.edges )
                 ) for t in 1:data.T
             )
@@ -230,7 +230,7 @@ function investment_heuristic(stoch_prob, data, max_unsupplied, relative_gap, si
     invest_min = 0.0
     invest_max = 100*objective_value(stoch_prob.model)
 
-    println(invest_min, "  ", invest_max)
+    #println(invest_min, "  ", invest_max)
     global best_obj = 0.0
 
     # Setting initial invest min and max
@@ -242,7 +242,7 @@ function investment_heuristic(stoch_prob, data, max_unsupplied, relative_gap, si
     alpha = 0.5
     rhs = 0
 
-    println(invest_min, "  ", invest_max)
+    #println(invest_min, "  ", invest_max)
 
     print_log == true ? @printf("%-20.6e%-20.6e%-20.2e%-20.6e%-20.6e%-20.6e%-15.2f%-20.6e%-20.6e\n", invest_min, invest_max, 
             (invest_max - invest_min)/invest_max, rhs, investment_cost(stoch_prob, data),

@@ -44,7 +44,7 @@ function create_bilevel_invest_problem
 """
 function create_bilevel_invest_problem(data, epsilon_cnt, max_unsupplied)
 
-    model = BilevelModel(Gurobi.Optimizer, mode = BilevelJuMP.SOS1Mode())
+    model = BilevelModel(() -> Gurobi.Optimizer(GRB_ENV), mode = BilevelJuMP.SOS1Mode())
 
     # invest variables
     @variable(Upper(model), 0 <= invest_flow[e in data.network.edges])
@@ -74,11 +74,10 @@ function create_bilevel_invest_problem(data, epsilon_cnt, max_unsupplied)
     @variable(Lower(model), 0 <= spilled[s in 1:data.S, i in 1:data.network.N, t in 1:data.T])
 
     # Flow bounds
-    invest_init = 5
     @constraint(Lower(model), flow_max_positive[s in 1:data.S, e in data.network.edges, t in 1:data.T], 
-        flow[s,e,t] <= invest_init + invest_flow[e])
+        flow[s,e,t] <= data.scenario[s].flow_init[e] + invest_flow[e])
     @constraint(Lower(model), flow_max_negative[s in 1:data.S, e in data.network.edges, t in 1:data.T], 
-        -(invest_flow[e] + invest_init) <= flow[s,e,t])
+        -(invest_flow[e] + data.scenario[s].flow_init[e]) <= flow[s,e,t])
 
     
     @constraint(Lower(model), flow_conservation[s in 1:data.S, n in 1:data.network.N, t in 1:data.T], 
@@ -113,7 +112,7 @@ function create_bilevel_invest_problem(data, epsilon_cnt, max_unsupplied)
                     for n in 1:data.network.N 
                     if data.scenario[s].has_production[n] == 1) +
                 # flow cost
-                sum( data.scenario[s].epsilon_flow * flow[s,e,t] 
+                sum( data.scenario[s].flow_cost[e] * flow[s,e,t] 
                     for e in data.network.edges )
                 ) for t in 1:data.T
             )
@@ -139,7 +138,7 @@ function create_bilevel_invest_problem(data, epsilon_cnt, max_unsupplied)
                     for n in 1:data.network.N 
                     if data.scenario[s].has_production[n] == 1) +
                 # flow cost
-                sum( data.scenario[s].epsilon_flow * flow[s,e,t] 
+                sum( data.scenario[s].flow_cost[e] * flow[s,e,t] 
                     for e in data.network.edges )
                 ) for t in 1:data.T
             )

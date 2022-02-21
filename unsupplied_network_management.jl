@@ -29,11 +29,11 @@ include("bilevelProblemGenerator.jl")
 include("stochasticProblemGenerator.jl")
 include("dataFromAntaresFormat.jl")
 
-
+const GRB_ENV = Gurobi.Env()
 #########################################################################################
 # User options
 #########################################################################################
-N = 15
+N = 3
 graph_density = 30
 #seed = 1
 
@@ -46,16 +46,17 @@ for seed in 1:50
     seed >= 0 ? Random.seed!(seed) : nothing
 
     scenarios = 1
-    time_steps = 5
-    demand_range = 50:400
-    prod_cost_range = 100:200
-    unsupplied_cost = 120
-    epsilon_flow = 0.1
-    grad_prod = 0.01
-    invest_cost_range = 300:1200
-    invest_prod_range = 300:1200
+    time_steps = 1
+    demand_range = 1:5
+    prod_cost_range = 10:40
+    unsupplied_cost = 1000
+    epsilon_flow = 1.0
+    grad_prod = 1.0
+    invest_cost_range = 500:1000
+    invest_prod_range = 500:1000
+    flow_init_max = 5
     time_data = @elapsed data = investment_problem_data_generator(scenarios, network, time_steps, demand_range, 
-    prod_cost_range, unsupplied_cost, epsilon_flow, grad_prod, invest_cost_range, invest_prod_range)
+    prod_cost_range, unsupplied_cost, epsilon_flow, flow_init_max, grad_prod, invest_cost_range, invest_prod_range)
 
     ########################################
     # Stochastic problem
@@ -71,16 +72,16 @@ for seed in 1:50
     unsup_stoch_prob = sum( data.probability .* unsupplied_cnt )
 
     println()
-    @printf("%-20s%-20s%-15s%-15s\n", "Invest cost", "Total cost", "Unsupplied", "Time")
-    @printf("%-20.4e%-20.4e%-15.2f%-15.3f\n", invest_stoch_prob, val_stoch_prob, unsup_stoch_prob, time_solve_stoch_prob)
+    @printf("%-20s%-20s%-20s%-15s%-15s\n", "", "Invest cost", "Total cost", "Unsupplied", "Time")
+    @printf("%-20s%-20.4e%-20.4e%-15.2f%-15.3f\n", "Stochastic", invest_stoch_prob, val_stoch_prob, unsup_stoch_prob, time_solve_stoch_prob)
 
     ########################################
     # Heuristic
     ########################################
-    max_unsupplied = 3
+    max_unsupplied = 1
     time_heuristic = @elapsed invest_heuristic, val_heuristic = investment_heuristic(stoch_prob, data, max_unsupplied, 1e-6, true, false)
 
-    @printf("%-20.4e%-20.4e%-15.2f%-15.3f\n", invest_heuristic, val_heuristic, max_unsupplied, time_heuristic)
+    @printf("%-20s%-20.4e%-20.4e%-15.2f%-15.3f\n", "Heuristic", invest_heuristic, val_heuristic, max_unsupplied, time_heuristic)
 
     ########################################
     # N hours counting constraint
@@ -96,7 +97,7 @@ for seed in 1:50
     has_unsupplied_cnt = [sum( value(has_unsupplied[s,n,t]) for n in 1:data.network.N, t in 1:data.T) for s in 1:scenarios]
     unsup_mip = sum( (data.probability .* has_unsupplied_cnt) )
 
-    @printf("%-20.4e%-20.4e%-15.2f%-15.3f\n", invest_mip, val_mip, unsup_mip, time_mip)
+    @printf("%-20s%-20.4e%-20.4e%-15.2f%-15.3f\n", "MIP", invest_mip, val_mip, unsup_mip, time_mip)
 
     ########################################
     # Bilevel problem
@@ -110,8 +111,8 @@ for seed in 1:50
     unsupplied_cnt = [ sum([ value(bilev.has_unsupplied[s,n,t]) for n in 1:network.N, t in 1:data.T]) for s in 1:scenarios]
     unsup_bilev = sum( (data.probability .* unsupplied_cnt) )
 
-    @printf("%-20.4e%-20.4e%-15.2f%-15.3f\n", invest_bilev, val_bilev, unsup_bilev, time_bilev)
-
+    @printf("%-20s%-20.4e%-20.4e%-15.2f%-15.3f\n", "Bilevel", invest_bilev, val_bilev, unsup_bilev, time_bilev)
+    println()
     @printf("Bilevel-MIP Gap = %-.6e\n" , val_bilev - val_mip)
     if val_bilev - val_mip > 1e-2 * val_mip
         println("####################################")

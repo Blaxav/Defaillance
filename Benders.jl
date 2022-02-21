@@ -145,7 +145,7 @@ function create_benders_subproblem(data, s)
                 for n in 1:data.network.N 
                 if data.scenario[s].has_production[n] == 1) +
             # flow cost
-            sum( data.scenario[s].epsilon_flow * flow[e,t] 
+            sum( data.scenario[s].flow_cost[e] * flow[e,t] 
                 for e in data.network.edges )
             ) for t in 1:data.T
         )
