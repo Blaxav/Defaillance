@@ -44,8 +44,8 @@ function create_invest_optim_problem
         It is possible to invest on every edge of the graph
 """
 function create_invest_optim_problem(data)
-    #model = Model(Gurobi.Optimizer)
-    model = Model(() -> Gurobi.Optimizer(GRB_ENV))
+    model = Model(CPLEX.Optimizer)
+    #model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
 
     # invest variables
     @variable(model, 0 <= invest_flow[e in data.network.edges])
@@ -242,6 +242,7 @@ function investment_heuristic(stoch_prob, data, max_unsupplied, relative_gap, si
     alpha = 0.5
     rhs = 0
 
+    global best_unsup_val = 0.0
     #println(invest_min, "  ", invest_max)
 
     print_log == true ? @printf("%-20.6e%-20.6e%-20.2e%-20.6e%-20.6e%-20.6e%-15.2f%-20.6e%-20.6e\n", invest_min, invest_max, 
@@ -264,6 +265,7 @@ function investment_heuristic(stoch_prob, data, max_unsupplied, relative_gap, si
         else
             global invest_max = rhs
             global best_obj = objective_value(stoch_prob.model)
+            global best_unsup_val = sum( (data.probability .* unsupplied_cnt) )
         end
 
         print_log == true ? @printf("%-20.6e%-20.6e%-20.2e%-20.6e%-20.6e%-20.6e%-15.2f%-20.6e%-20.6e\n", invest_min, invest_max, 
@@ -273,6 +275,7 @@ function investment_heuristic(stoch_prob, data, max_unsupplied, relative_gap, si
     
     end
 
+    #println("Unsup final : ", best_unsup_val)
     set_normalized_rhs(constraint_by_name(stoch_prob.model, "invest_cost"), 0)
-    return invest_max, best_obj
+    return invest_max, best_obj, best_unsup_val
 end

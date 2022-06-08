@@ -29,95 +29,104 @@ include("bilevelProblemGenerator.jl")
 include("stochasticProblemGenerator.jl")
 include("dataFromAntaresFormat.jl")
 
-const GRB_ENV = Gurobi.Env()
+#const GRB_ENV = Gurobi.Env()
+
 #########################################################################################
 # User options
 #########################################################################################
 N = 3
-graph_density = 30
+graph_density = 15
 #seed = 1
+global scenarios = 1
+for k_scen in 2:2
+    global scenarios = 5*k_scen
+    for seed in (scenarios+3):(scenarios+3)
+        global N = 3
+        println("N scenarios : ", scenarios)
+        println("Seed ", seed)
+        time_graph = @elapsed network = create_network(N, graph_density, seed, plotGraph = false, drawGraph = true)
 
-for seed in 1:50
-    println()
-    println("Seed ", seed)
-    time_graph = @elapsed network = create_network(N, graph_density, seed, plotGraph = false, drawGraph = true)
 
+        seed >= 0 ? Random.seed!(seed) : nothing
 
-    seed >= 0 ? Random.seed!(seed) : nothing
+        #scenarios = 10
+        time_steps = 2
+        demand_range = 300:800
+        prod_cost_range = 200:500
+        unsupplied_cost = 1000
+        epsilon_flow = 1.0
+        grad_prod = 0.2
+        invest_cost_range = 1000:2000
+        invest_prod_range = 1000:2000
+        flow_init_max = 5
+        time_data = @elapsed data = investment_problem_data_generator(scenarios, network, time_steps, demand_range, 
+        prod_cost_range, unsupplied_cost, epsilon_flow, flow_init_max, grad_prod, invest_cost_range, invest_prod_range)
 
-    scenarios = 1
-    time_steps = 1
-    demand_range = 1:5
-    prod_cost_range = 10:40
-    unsupplied_cost = 1000
-    epsilon_flow = 1.0
-    grad_prod = 1.0
-    invest_cost_range = 500:1000
-    invest_prod_range = 500:1000
-    flow_init_max = 5
-    time_data = @elapsed data = investment_problem_data_generator(scenarios, network, time_steps, demand_range, 
-    prod_cost_range, unsupplied_cost, epsilon_flow, flow_init_max, grad_prod, invest_cost_range, invest_prod_range)
+        ########################################
+        # Stochastic problem
+        ########################################
+        time_stoch_prob_creation = @elapsed stoch_prob = create_invest_optim_problem(data)
 
-    ########################################
-    # Stochastic problem
-    ########################################
-    time_stoch_prob_creation = @elapsed stoch_prob = create_invest_optim_problem(data)
+        time_solve_stoch_prob = @elapsed solve(stoch_prob, true)
 
-    time_solve_stoch_prob = @elapsed solve(stoch_prob, true)
+        val_stoch_prob = objective_value(stoch_prob.model)
+        invest_stoch_prob = investment_cost(stoch_prob, data)
 
-    val_stoch_prob = objective_value(stoch_prob.model)
-    invest_stoch_prob = investment_cost(stoch_prob, data)
+        unsupplied_cnt = [counting_unsupplied_scenario(stoch_prob, s, 0.0, data) for s in 1:data.S]
+        unsup_stoch_prob = sum( data.probability .* unsupplied_cnt )
 
-    unsupplied_cnt = [counting_unsupplied_scenario(stoch_prob, s, 0.0, data) for s in 1:data.S]
-    unsup_stoch_prob = sum( data.probability .* unsupplied_cnt )
+        println()
+        @printf("%-20s%-20s%-20s%-15s%-15s\n", "", "Invest cost", "Total cost", "Unsupplied", "Time")
+        @printf("%-20s%-20.4e%-20.4e%-15.2f%-15.3f\n", "Stochastic", invest_stoch_prob, val_stoch_prob, unsup_stoch_prob, time_solve_stoch_prob)
 
-    println()
-    @printf("%-20s%-20s%-20s%-15s%-15s\n", "", "Invest cost", "Total cost", "Unsupplied", "Time")
-    @printf("%-20s%-20.4e%-20.4e%-15.2f%-15.3f\n", "Stochastic", invest_stoch_prob, val_stoch_prob, unsup_stoch_prob, time_solve_stoch_prob)
+        ########################################
+        # Heuristic
+        ########################################
+        max_unsupplied = 3
+        time_heuristic = @elapsed invest_heuristic, val_heuristic, unsup_heuristic = investment_heuristic(stoch_prob, data, max_unsupplied, 1e-6, true, false)
 
-    ########################################
-    # Heuristic
-    ########################################
-    max_unsupplied = 1
-    time_heuristic = @elapsed invest_heuristic, val_heuristic = investment_heuristic(stoch_prob, data, max_unsupplied, 1e-6, true, false)
+        @printf("%-20s%-20.4e%-20.4e%-15.2f%-15.3f\n", "Heuristic", invest_heuristic, val_heuristic, unsup_heuristic, time_heuristic)
 
-    @printf("%-20s%-20.4e%-20.4e%-15.2f%-15.3f\n", "Heuristic", invest_heuristic, val_heuristic, max_unsupplied, time_heuristic)
+        ########################################
+        # N hours counting constraint
+        ########################################
+        epsilon_cnt = 0.0001
+        #has_unsupplied, unsupplied_cnt_cstr = add_unsupplied_counter_constraint(stoch_prob, max_unsupplied, epsilon_cnt, data)
 
-    ########################################
-    # N hours counting constraint
-    ########################################
-    epsilon_cnt = 0.0001
-    has_unsupplied, unsupplied_cnt_cstr = add_unsupplied_counter_constraint(stoch_prob, max_unsupplied, epsilon_cnt, data)
+        #time_mip = @elapsed solve(stoch_prob, true)
 
-    time_mip = @elapsed solve(stoch_prob, true)
+        #val_mip =  objective_value(stoch_prob.model)
+        #invest_mip = investment_cost(stoch_prob, data)
 
-    val_mip =  objective_value(stoch_prob.model)
-    invest_mip = investment_cost(stoch_prob, data)
+        #has_unsupplied_cnt = [sum( value(has_unsupplied[s,n,t]) for n in 1:data.network.N, t in 1:data.T) for s in 1:scenarios]
+        #unsup_mip = sum( (data.probability .* has_unsupplied_cnt) )
 
-    has_unsupplied_cnt = [sum( value(has_unsupplied[s,n,t]) for n in 1:data.network.N, t in 1:data.T) for s in 1:scenarios]
-    unsup_mip = sum( (data.probability .* has_unsupplied_cnt) )
+        #@printf("%-20s%-20.4e%-20.4e%-15.2f%-15.3f\n", "MIP", invest_mip, val_mip, unsup_mip, time_mip)
 
-    @printf("%-20s%-20.4e%-20.4e%-15.2f%-15.3f\n", "MIP", invest_mip, val_mip, unsup_mip, time_mip)
+        ########################################
+        # Bilevel problem
+        ########################################
+        time_bilev_prob_creation = @elapsed bilev = create_bilevel_invest_problem(data, epsilon_cnt, max_unsupplied)
 
-    ########################################
-    # Bilevel problem
-    ########################################
-    time_bilev_prob_creation = @elapsed bilev = create_bilevel_invest_problem(data, epsilon_cnt, max_unsupplied)
-    time_bilev = @elapsed solve(bilev, true)
+        #show_constraints_summary(bilev.model)
+        #exit()
 
-    val_bilev = objective_value(bilev.model)
-    invest_bilev = investment_cost(bilev, data)
+        time_bilev = @elapsed solve(bilev, false)
 
-    unsupplied_cnt = [ sum([ value(bilev.has_unsupplied[s,n,t]) for n in 1:network.N, t in 1:data.T]) for s in 1:scenarios]
-    unsup_bilev = sum( (data.probability .* unsupplied_cnt) )
+        val_bilev = objective_value(bilev.model)
+        invest_bilev = investment_cost(bilev, data)
 
-    @printf("%-20s%-20.4e%-20.4e%-15.2f%-15.3f\n", "Bilevel", invest_bilev, val_bilev, unsup_bilev, time_bilev)
-    println()
-    @printf("Bilevel-MIP Gap = %-.6e\n" , val_bilev - val_mip)
-    if val_bilev - val_mip > 1e-2 * val_mip
-        println("####################################")
-        println("Instance found for seed = ", seed)
-        println("####################################")
+        unsupplied_cnt = [ sum([ value(bilev.has_unsupplied[s,n,t]) for n in 1:network.N, t in 1:data.T]) for s in 1:scenarios]
+        unsup_bilev = sum( (data.probability .* unsupplied_cnt) )
+
+        @printf("%-20s%-20.4e%-20.4e%-15.2f%-15.3f\n", "Bilevel", invest_bilev, val_bilev, unsup_bilev, time_bilev)
+        println()
+        #@printf("Bilevel-MIP Gap = %-.6e\n" , val_bilev - val_mip)
+        #if val_bilev - val_mip > 1e-2 * val_mip
+        #    println("####################################")
+        #    println("Instance found for seed = ", seed)
+        #    println("####################################")
+        #end
     end
 end
 
