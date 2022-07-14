@@ -29,7 +29,7 @@ include("bilevelProblemGenerator.jl")
 include("stochasticProblemGenerator.jl")
 include("dataFromAntaresFormat.jl")
 
-#const GRB_ENV = Gurobi.Env()
+const GRB_ENV = Gurobi.Env()
 
 #########################################################################################
 # User options

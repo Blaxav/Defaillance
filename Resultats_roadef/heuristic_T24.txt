@@ -1,0 +1,112 @@
+N scenarios : 5
+Seed 105
+Could not reach density 15%, final density = 20.0%.
+
+                    Invest cost         Total cost          Unsupplied     Time
+Stochastic          5.5165e+06          4.4003e+07          10.59          0.260
+Heuristic           9.2122e+06          4.5222e+07          2.88           1.254
+N scenarios : 5
+Seed 106
+Could not reach density 15%, final density = 20.0%.
+
+                    Invest cost         Total cost          Unsupplied     Time
+Stochastic          6.0296e+06          4.6281e+07          9.53           0.169
+Heuristic           7.5523e+06          4.6595e+07          2.99           0.496
+N scenarios : 5
+Seed 107
+Could not reach density 15%, final density = 20.0%.
+
+                    Invest cost         Total cost          Unsupplied     Time
+Stochastic          7.6022e+06          4.6325e+07          16.10          0.174
+Heuristic           1.7431e+07          5.1230e+07          2.77           0.352
+N scenarios : 5
+Seed 108
+Could not reach density 15%, final density = 20.0%.
+
+                    Invest cost         Total cost          Unsupplied     Time
+Stochastic          5.5110e+06          4.3421e+07          4.22           0.406
+Heuristic           6.3561e+06          4.3515e+07          2.82           1.066
+N scenarios : 10
+Seed 110
+Could not reach density 15%, final density = 20.0%.
+
+                    Invest cost         Total cost          Unsupplied     Time
+Stochastic          6.3799e+06          4.5204e+07          10.06          0.631
+Heuristic           1.0327e+07          4.6509e+07          2.92           1.271
+N scenarios : 10
+Seed 111
+Could not reach density 15%, final density = 20.0%.
+
+                    Invest cost         Total cost          Unsupplied     Time
+Stochastic          5.6944e+06          4.4923e+07          11.50          0.413
+Heuristic           9.2553e+06          4.6103e+07          2.97           1.081
+N scenarios : 10
+Seed 112
+Could not reach density 15%, final density = 20.0%.
+
+                    Invest cost         Total cost          Unsupplied     Time
+Stochastic          7.9061e+06          4.8040e+07          15.84          0.315
+Heuristic           1.6822e+07          5.2277e+07          3.00           0.575
+N scenarios : 10
+Seed 113
+Could not reach density 15%, final density = 20.0%.
+
+                    Invest cost         Total cost          Unsupplied     Time
+Stochastic          6.0885e+06          4.4633e+07          12.82          0.353
+Heuristic           9.1867e+06          4.5728e+07          2.98           1.014
+N scenarios : 15
+Seed 115
+Could not reach density 15%, final density = 20.0%.
+
+                    Invest cost         Total cost          Unsupplied     Time
+Stochastic          5.6549e+06          4.3667e+07          7.90           1.781
+Heuristic           7.7162e+06          4.4116e+07          2.99           6.564
+N scenarios : 15
+Seed 116
+Could not reach density 15%, final density = 20.0%.
+
+                    Invest cost         Total cost          Unsupplied     Time
+Stochastic          8.3015e+06          4.8370e+07          15.26          0.405
+Heuristic           1.1899e+07          5.0247e+07          2.85           0.744
+N scenarios : 15
+Seed 117
+Could not reach density 15%, final density = 20.0%.
+
+                    Invest cost         Total cost          Unsupplied     Time
+Stochastic          6.3672e+06          4.5870e+07          14.58          0.682
+Heuristic           1.2743e+07          4.9146e+07          2.95           1.050
+N scenarios : 15
+Seed 118
+Could not reach density 15%, final density = 20.0%.
+
+                    Invest cost         Total cost          Unsupplied     Time
+Stochastic          6.5650e+06          4.5881e+07          12.15          1.114
+Heuristic           1.1493e+07          4.7646e+07          2.94           1.749
+N scenarios : 20
+Seed 120
+Could not reach density 15%, final density = 20.0%.
+
+                    Invest cost         Total cost          Unsupplied     Time
+Stochastic          5.3405e+06          4.3892e+07          6.32           8.106
+Heuristic           6.8143e+06          4.4113e+07          2.96           16.084
+N scenarios : 20
+Seed 121
+Could not reach density 15%, final density = 20.0%.
+
+                    Invest cost         Total cost          Unsupplied     Time
+Stochastic          5.5738e+06          4.3277e+07          6.98           4.670
+Heuristic           7.5352e+06          4.3666e+07          3.00           10.442
+N scenarios : 20
+Seed 122
+Could not reach density 15%, final density = 20.0%.
+
+                    Invest cost         Total cost          Unsupplied     Time
+Stochastic          5.7476e+06          4.3324e+07          6.27           6.643
+Heuristic           7.1024e+06          4.3535e+07          2.98           13.151
+N scenarios : 20
+Seed 123
+Could not reach density 15%, final density = 20.0%.
+
+                    Invest cost         Total cost          Unsupplied     Time
+Stochastic          6.0592e+06          4.5195e+07          10.17          3.543
+Heuristic           9.2995e+06          4.6212e+07          2.99           6.332

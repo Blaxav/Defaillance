@@ -30,7 +30,7 @@ include("stochasticProblemGenerator.jl")
 include("dataFromAntaresFormat.jl")
 
 
-#const GRB_ENV = Gurobi.Env()
+const GRB_ENV = Gurobi.Env()
 
 #########################################################################################
 # Benders problem creation
@@ -69,8 +69,8 @@ end
 
 
 function create_master_benders_problem(data)
-    #model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
-    model = Model(CPLEX.Optimizer)
+    model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
+    #model = Model(CPLEX.Optimizer)
 
 
     # invest variables
@@ -103,8 +103,8 @@ end
 
 
 function create_benders_subproblem(data, s)
-    #model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
-    model = Model(CPLEX.Optimizer)
+    model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
+    #model = Model(CPLEX.Optimizer)
 
     # invest variables
     @variable(model, 0 <= invest_flow[e in data.network.edges])
@@ -176,8 +176,8 @@ end
 
 
 function create_master_benders_problem(data)
-    #model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
-    model = Model(CPLEX.Optimizer)
+    model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
+    #model = Model(CPLEX.Optimizer)
 
     # invest variables
     @variable(model, 0 <= invest_flow[e in data.network.edges])
@@ -209,8 +209,8 @@ end
 
 
 function create_benders_subproblem_with_counting_unsupplied(data, s, epsilon_cnt)
-    #model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
-    model = Model(CPLEX.Optimizer)
+    model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
+    #model = Model(CPLEX.Optimizer)
 
     # invest variables
     @variable(model, 0 <= invest_flow[e in data.network.edges])
@@ -334,6 +334,17 @@ function investment_cost(invest_flow, invest_prod, data)
 end
 
 
+function master_solution_investment_cost(master, data)
+    solution_invest_prod = value.(master.invest_prod)
+    solution_invest_flow = value.(master.invest_flow)
+
+    #println(solution_invest_prod)
+    #println(solution_invest_flow)
+
+    investment_cost(solution_invest_flow, solution_invest_prod, data)
+end
+
+
 function benders_sequential(master, subproblems, data, n_iteration_log)
 
     global best_UB = 1e12
@@ -372,17 +383,12 @@ function benders_sequential(master, subproblems, data, n_iteration_log)
     while best_UB - LB > 1e-6*best_UB
     
         global iteration += 1
-    
-        #println("Solve Master")
-        #print(master.model)
         
         # 1. Solving master problem
         solve(master, true)
         
         # 2. Get master solution (investment candidates)
         candidate_flow, candidate_prod = get_master_solution(master)
-        #println(candidate_flow)
-        #println(candidate_prod)
         global LB = objective_value(master.model)
 
         for e in data.network.edges
@@ -394,23 +400,19 @@ function benders_sequential(master, subproblems, data, n_iteration_log)
             end
         end
 
-        #println(separation_flow)
-        #println(separation_prod)
-    
-        #println("Solve Subproblems")
         # 3. Fix investment candidates in subproblems
         fix_first_stage_candidate(subproblems, separation_flow, separation_prod, data)
     
         local UB = investment_cost(separation_flow, separation_prod, data)
         local rhs = 0.0
-        #println(UB)
+
         # 4. Solve Subproblems and get subprgradients
         for s in 1:data.S
             solve(subproblems[s], true)
     
             UB += data.probability[s] * objective_value(subproblems[s].model)
             rhs += data.probability[s] * objective_value(subproblems[s].model)
-            #println(UB)
+
             if s == 1
                 global grad_flow = data.probability[s] * reduced_cost.(subproblems[s].invest_flow)
                 global grad_prod = data.probability[s] * reduced_cost.(subproblems[s].invest_prod)
@@ -425,13 +427,6 @@ function benders_sequential(master, subproblems, data, n_iteration_log)
                 end
             end
         end
-
-        # Build cut
-        @constraint(master.model, master.theta_sum >= 
-        rhs +
-        sum( grad_flow[e] * (master.invest_flow[e] - separation_flow[e]) for e in data.network.edges) +
-        sum( grad_prod[n] * (master.invest_prod[n] - separation_prod[n]) for n in 1:data.network.N if data.scenario[1].has_production[n] == 1)
-        )
     
         if UB < best_UB
             global alpha = min(1.0, 1.2*alpha)
@@ -442,180 +437,19 @@ function benders_sequential(master, subproblems, data, n_iteration_log)
             global alpha = max(0.1, 0.8*alpha)
         end
         
-        if iteration % log_freq == 0 || best_UB - LB <= 1e-6*best_UB
+        if iteration % log_freq == 0 #|| best_UB - LB <= 1e-6*best_UB
             @printf("%-10i%-20.6e%-20.6e%-15.3e%15.3f\n", iteration, LB, best_UB, (best_UB-LB)/best_UB, alpha)
         end
-    end
-end
 
-function benders_lazy_constraint_callback(cb_data)
-
-    global iter_num
-    global best_bound
-    iter_num += 1
-    #println("Iteration number = ", iter_num)
-
-    # Get master problem solution
-    invest_prod_current = callback_value.(Ref(cb_data), benders_master.invest_prod)
-    invest_flow_current = Dict{Edge, Float64}()
-    for e in data.network.edges
-        invest_flow_current[e] = callback_value(cb_data, benders_master.invest_flow[e])
-    end
-    theta_current = callback_value.(Ref(cb_data), benders_master.theta)
-    theta_total_current = callback_value(cb_data, benders_master.theta_sum)
-
-
-    # Fix first stage
-    fix_first_stage_candidate(subproblems, invest_flow_current, invest_prod_current, data)
-
-
-    local UB = investment_cost(invest_flow_current, invest_prod_current, data)
-    local rhs = 0.0
-
-    # 4. Solve Subproblems and get subprgradients
-    for s in 1:data.S
-        solve(subproblems[s], true)
-
-        UB += data.probability[s] * objective_value(subproblems[s].model)
-        
-        rhs += data.probability[s] * objective_value(subproblems[s].model)
-        #println(UB)
-        if s == 1
-            global grad_flow = data.probability[s] * reduced_cost.(subproblems[s].invest_flow)
-            global grad_prod = data.probability[s] * reduced_cost.(subproblems[s].invest_prod)
-        else
-            for e in data.network.edges
-                global grad_flow[e] += data.probability[s] * reduced_cost(subproblems[s].invest_flow[e])
-            end
-            for n in 1:data.network.N
-                if data.scenario[s].has_production[n] == 1
-                    global grad_prod[n] += data.probability[s] * reduced_cost(subproblems[s].invest_prod[n])
-                end
-            end
-        end
-    end
-
-
-
-
-    if UB < best_bound
-        global best_bound = UB
-        println("BOUND FOUND ! ", best_bound)
-    #    println("test bound : ", MOI.get(benders_master.model, MOI.ObjectiveBound()))
-    #    MOI.set(benders_master.model, MOI.ObjectiveBound(), best_bound)
-    end
-
-    if rhs > theta_total_current + 1e-3
         # Build cut
-        new_optimality_cons = @build_constraint(
-            benders_master.theta_sum >= 
+        if best_UB - LB > 1e-6*best_UB
+            @constraint(master.model, master.theta_sum >= 
             rhs +
-            sum(grad_flow[e] * (benders_master.invest_flow[e] - invest_flow_current[e]) for e in data.network.edges) +
-            sum(grad_prod[n] * (benders_master.invest_prod[n] - invest_prod_current[n]) for n in 1:data.network.N if data.scenario[1].has_production[n] == 1)
+            sum( grad_flow[e] * (master.invest_flow[e] - separation_flow[e]) for e in data.network.edges) +
+            sum( grad_prod[n] * (master.invest_prod[n] - separation_prod[n]) for n in 1:data.network.N if data.scenario[1].has_production[n] == 1)
             )
-        MOI.submit(
-            benders_master.model,
-            MOI.LazyConstraint(cb_data),
-            new_optimality_cons,
-        )
-
-    else
-        println("No cut here !")
-    end
-    
-end
-
-
-function benders_user_cut_callback(cb_data)
-    global user_iter
-    user_iter += 1
-    #println("Iteration number = ", user_iter)
-
-    # Get master problem solution
-    #invest_prod_current = callback_value.(Ref(cb_data), benders_master.invest_prod)
-    invest_prod_current = Dict{Int, Float64}()
-    for n in 1:data.network.N
-        if data.scenario[1].has_production[n] == 1
-            invest_prod_current[n] = round(Int, callback_value(cb_data, benders_master.invest_prod[n]))
         end
     end
-    #println("User : ", invest_prod_current)
-
-    invest_flow_current = Dict{Edge, Float64}()
-    for e in data.network.edges
-        invest_flow_current[e] = callback_value(cb_data, benders_master.invest_flow[e])
-    end
-    theta_current = callback_value.(Ref(cb_data), benders_master.theta)
-    theta_total_current = callback_value(cb_data, benders_master.theta_sum)
-
-    # Fix first stage
-    fix_first_stage_candidate(subproblems, invest_flow_current, invest_prod_current, data)
-
-    #println("Current integer sol : ",   invest_prod_current)
-
-    local UB = investment_cost(invest_flow_current, invest_prod_current, data)
-    local rhs = 0.0
-
-    # 4. Solve Subproblems and get subprgradients
-    for s in 1:data.S
-        solve(subproblems[s], true)
-
-        UB += data.probability[s] * objective_value(subproblems[s].model)
-        
-        rhs += data.probability[s] * objective_value(subproblems[s].model)
-        #println(UB)
-        if s == 1
-            global grad_flow = data.probability[s] * reduced_cost.(subproblems[s].invest_flow)
-            global grad_prod = data.probability[s] * reduced_cost.(subproblems[s].invest_prod)
-        else
-            for e in data.network.edges
-                global grad_flow[e] += data.probability[s] * reduced_cost(subproblems[s].invest_flow[e])
-            end
-            for n in 1:data.network.N
-                if data.scenario[s].has_production[n] == 1
-                    global grad_prod[n] += data.probability[s] * reduced_cost(subproblems[s].invest_prod[n])
-                end
-            end
-        end
-    end
-
-    #println("User UB = ", UB)
-
-    # Build cut
-    if rhs > theta_total_current + 1e3
-        new_optimality_cons = @build_constraint(
-            benders_master.theta_sum >= 
-            rhs +
-            sum(grad_flow[e] * (benders_master.invest_flow[e] - invest_flow_current[e]) for e in data.network.edges) +
-            sum(grad_prod[n] * (benders_master.invest_prod[n] - invest_prod_current[n]) for n in 1:data.network.N if data.scenario[1].has_production[n] == 1)
-            )
-        MOI.submit(
-            benders_master.model,
-            MOI.UserCut(cb_data),
-            new_optimality_cons,
-        )
-    else
-        println("No cut here !")
-    end
-    
-end
-
-function my_heuristic_callback(cb_data)
-
-    #println("Submit heuristic solution")
-    invest_prod_current = callback_value.(Ref(cb_data), benders_master.invest_prod)
-    
-    invest_heuristic = [ round(Int, v) for v in invest_prod_current ]
-    #println(" Vector de l'heuristique : ", invest_heuristic)
-    prod_vars = [benders_master.invest_prod[n] for n in 1:data.network.N if data.scenario[1].has_production[n] == 1]
-
-    status = MOI.submit(
-        benders_master.model, 
-        MOI.HeuristicSolution(cb_data), 
-        prod_vars, 
-        invest_heuristic
-    )
-    #println("I submitted a heuristic solution, and the status was: ", status)
 end
 
 """
@@ -630,23 +464,24 @@ function investment_heuristic_benders(benders_master, subproblems, data, max_uns
 
     # Initialization
     t_optim = @elapsed benders_sequential(benders_master, subproblems, data, 50)
+
     t_counting = @elapsed unsupplied_cnt = [counting_unsupplied_subproblem(subproblems[s], 0.0001, data) for s in 1:data.S]
 
     invest_min = 0.0
     #invest_max = 100*objective_value(benders_master.model)
-    invest_max = 1e7
+    invest_max = 1e12
 
     global best_obj = 0.0
 
     # Setting initial invest min and max
-    println("Unsupp = ", sum( data.probability .* unsupplied_cnt ))
     if sum( data.probability .* unsupplied_cnt ) > max_unsupplied
-        global invest_min = investment_cost(benders_master.invest_prod, benders_master.invest_flow, data)
+        global invest_min = master_solution_investment_cost(benders_master, data)
     else
-        global invest_max = investment_cost(benders_master, data)
+        global invest_max = master_solution_investment_cost(benders_master, data)
     end
     alpha = 0.5
-    rhs = 
+    global rhs = 0.0
+
 
     print_log == true ? @printf("%-20.6e%-20.6e%-20.2e%-20.6e%-20.6e%-20.6e%-15.2f%-20.6e%-20.6e\n", invest_min, invest_max, 
             (invest_max - invest_min)/invest_max, rhs, investment_cost(benders_master, data),
@@ -660,7 +495,7 @@ function investment_heuristic_benders(benders_master, subproblems, data, max_uns
         set_normalized_rhs(constraint_by_name(benders_master.model, "invest_cost"), rhs)
     
         #global t_optim = @elapsed solve(stoch_prob, silent_mode)
-        t_optim = @elapsed benders_sequential(benders_master, subproblems, data)
+        t_optim = @elapsed benders_sequential(benders_master, subproblems, data, 50)
         global t_counting = @elapsed global unsupplied_cnt = [counting_unsupplied_subproblem(subproblems[s], 0.0001, data) for s in 1:data.S]
         
 
@@ -672,7 +507,7 @@ function investment_heuristic_benders(benders_master, subproblems, data, max_uns
         end
 
         print_log == true ? @printf("%-20.6e%-20.6e%-20.2e%-20.6e%-20.6e%-20.6e%-15.2f%-20.6e%-20.6e\n", invest_min, invest_max, 
-            (invest_max - invest_min)/invest_max, rhs, investment_cost(benders_master, data),
+            (invest_max - invest_min)/invest_max, rhs, master_solution_investment_cost(benders_master, data),
             objective_value(benders_master.model), sum( data.probability .* unsupplied_cnt ), 
             t_optim, t_counting ) : nothing
     
@@ -703,19 +538,19 @@ end
 #########################################################################################
 # User options
 #########################################################################################
-N = 20
-graph_density = 15
-seed = -1
+N = 150
+graph_density = 2
+seed = 15
 time_graph = @elapsed network = create_network(N, graph_density, seed, plotGraph = false, drawGraph = true)
 
 
 seed >= 0 ? Random.seed!(seed) : nothing
 
-scenarios = 10
-time_steps = 1
+scenarios = 250
+time_steps = 15
 demand_range = 100:1000
 prod_cost_range = 10:40
-unsupplied_cost = 1000
+unsupplied_cost = 500
 epsilon_flow = 1.0
 grad_prod = 0.2
 invest_cost_range = 100:500
@@ -743,7 +578,9 @@ for s in 1:data.S
 end
 
 
-#benders_sequential(benders_master, subproblems, data, 2)
+benders_sequential(benders_master, subproblems, data, 2)
+exit()
+
 
 max_unsupplied = 3
 investment_heuristic_benders(benders_master, subproblems, data, max_unsupplied, 1e-6, true, true)
@@ -776,44 +613,4 @@ else
     println()
     println("*************************")
 end
-
-####################################################
-##################### STOP HERE ####################
-####################################################
-exit()
-
-MOI.set(
-    benders_master.model,
-    MOI.LazyConstraintCallback(),
-    benders_lazy_constraint_callback,
-)
-
-MOI.set(
-    benders_master.model,
-    MOI.UserCutCallback(),
-    benders_user_cut_callback,
-)
-
-MOI.set(
-    benders_master.model,
-    MOI.HeuristicCallback(),
-    my_heuristic_callback,
-)
-
-# 2. MIP problem
-set_integer.(benders_master.invest_prod)
-
-iter_num = 0
-user_iter = 0
-heuristic_iter = 0
-best_bound = 1e12
-unset_silent(benders_master.model)
-optimize!(benders_master.model)
-
-
-#@time benders_sequential(benders_master, subproblems, data)
-
-println("Lazy calls : ", iter_num)
-println("User callback calls :", user_iter)
-println("Heuristic calls : ", heuristic_iter)
 

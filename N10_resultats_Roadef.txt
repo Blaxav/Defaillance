@@ -1,0 +1,10 @@
+N = 10
+time_steps = 5
+demand_range = 300:800
+prod_cost_range = 200:500
+unsupplied_cost = 1000
+epsilon_flow = 1.0
+grad_prod = 0.2
+invest_cost_range = 1000:2000
+invest_prod_range = 1000:2000
+flow_init_max = 5

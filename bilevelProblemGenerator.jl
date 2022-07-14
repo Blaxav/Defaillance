@@ -44,8 +44,8 @@ function create_bilevel_invest_problem
 """
 function create_bilevel_invest_problem(data, epsilon_cnt, max_unsupplied)
 
-    #model = BilevelModel(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "TimeLimit" => 720), mode = BilevelJuMP.SOS1Mode())
-    model = BilevelModel(CPLEX.Optimizer, mode = BilevelJuMP.SOS1Mode())
+    model = BilevelModel(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "TimeLimit" => 720), mode = BilevelJuMP.SOS1Mode())
+    #model = BilevelModel(CPLEX.Optimizer, mode = BilevelJuMP.SOS1Mode())
 
     # invest variables
     @variable(Upper(model), 0 <= invest_flow[e in data.network.edges])

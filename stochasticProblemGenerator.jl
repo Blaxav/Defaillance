@@ -44,8 +44,8 @@ function create_invest_optim_problem
         It is possible to invest on every edge of the graph
 """
 function create_invest_optim_problem(data)
-    model = Model(CPLEX.Optimizer)
-    #model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
+    #model = Model(CPLEX.Optimizer)
+    model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
 
     # invest variables
     @variable(model, 0 <= invest_flow[e in data.network.edges])
