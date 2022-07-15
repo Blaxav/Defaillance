@@ -68,7 +68,7 @@ struct BendersCountingSubroblem
 end
 
 
-function create_master_benders_problem(data)
+#=function create_master_benders_problem(data)
     model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
     #model = Model(CPLEX.Optimizer)
 
@@ -100,7 +100,7 @@ function create_master_benders_problem(data)
 
     return BendersMasterProblem(model, invest_flow, invest_prod, theta_sum, theta)
 end
-
+=#
 
 function create_benders_subproblem(data, s)
     model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
@@ -113,6 +113,7 @@ function create_benders_subproblem(data, s)
 
     # Flow variables
     @variable(model, flow[e in data.network.edges, t in 1:data.T])
+    @variable(model, 0 <= flow_abs[e in data.network.edges, t in 1:data.T])
 
     # Production variables
     @variable(model, 0 <= prod[n in 1:data.network.N, t in 1:data.T; 
@@ -140,7 +141,14 @@ function create_benders_subproblem(data, s)
     @constraint(model, flow_max_negative[e in data.network.edges, t in 1:data.T], 
         -(invest_flow[e] + data.scenario[s].flow_init[e]) <= flow[e,t])
 
-    
+
+    # Absolute value of flow in cost
+    @constraint(model, flow_abs_positive[e in data.network.edges, t in 1:data.T], 
+        flow_abs[e,t] >= flow[e,t])
+    @constraint(model, flow_abs_negative[e in data.network.edges, t in 1:data.T], 
+        flow_abs[e,t] >= -flow[e,t])
+
+    # Flow conservation
     @constraint(model, flow_conservation[n in 1:data.network.N, t in 1:data.T], 
         sum(flow[e,t] for e in data.network.edges if e.to == n) - 
         sum(flow[e,t] for e in data.network.edges if e.from == n) + 
@@ -161,7 +169,7 @@ function create_benders_subproblem(data, s)
                 for n in 1:data.network.N 
                 if data.scenario[s].has_production[n] == 1) +
             # flow cost
-            sum( data.scenario[s].flow_cost[e] * flow[e,t] 
+            sum( data.scenario[s].flow_cost[e] * flow_abs[e,t] 
                 for e in data.network.edges )
             ) for t in 1:data.T
         )
@@ -176,7 +184,8 @@ end
 
 
 function create_master_benders_problem(data)
-    model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
+    model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV)))
+    #model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
     #model = Model(CPLEX.Optimizer)
 
     # invest variables
@@ -205,6 +214,24 @@ function create_master_benders_problem(data)
     )
 
     return BendersMasterProblem(model, invest_flow, invest_prod, theta_sum, theta)
+end
+
+function set_invest_free_master(master, data, perturbation)
+    @objective(master.model, Min,
+        sum( perturbation * master.invest_flow[e] for e in data.network.edges ) +
+        sum( perturbation * master.invest_prod[n] for n in 1:data.network.N 
+            if data.has_production[n] == 1) +
+        master.theta_sum
+    )
+end
+
+function set_initial_objective_master(master, data)
+    @objective(master.model, Min,
+        sum( data.invest_flow_cost[e] * master.invest_flow[e] for e in data.network.edges ) +
+        sum( data.invest_prod_cost[n] * master.invest_prod[n] for n in 1:data.network.N 
+            if data.has_production[n] == 1) +
+        master.theta_sum
+    )
 end
 
 
@@ -296,7 +323,14 @@ function create_benders_subproblem_with_counting_unsupplied(data, s, epsilon_cnt
 end
 
 
-
+"""
+function counting_unsupplied_scenario
+    brief: Computes the number of nodes which loss of load for a given scenario after optimization
+"""
+function counting_unsupplied_scenario(prob, epsilon, data)
+    #return sum( value(prob.unsupplied[n,t]) > epsilon ? 1 : 0 for n in 1:data.network.N, t in 1:data.T )
+    length( filter(x -> x > epsilon, value.(prob.unsupplied)) )
+end
 
 #########################################################################################
 # Benders resolution
@@ -338,16 +372,13 @@ function master_solution_investment_cost(master, data)
     solution_invest_prod = value.(master.invest_prod)
     solution_invest_flow = value.(master.invest_flow)
 
-    #println(solution_invest_prod)
-    #println(solution_invest_flow)
-
     investment_cost(solution_invest_flow, solution_invest_prod, data)
 end
 
 
-function benders_sequential(master, subproblems, data, n_iteration_log, algo)
+function benders_sequential(master, subproblems, data, n_iteration_log, algo, invest_free)
 
-    global best_UB = 1e12
+    global best_UB = 1e20
     LB = -1e6
     global best_invest_flow = Dict(zip(
         data.network.edges,
@@ -366,7 +397,7 @@ function benders_sequential(master, subproblems, data, n_iteration_log, algo)
             [0.0 for i in 1:sum(data.scenario[1].has_production)]
             ))
     global iteration = 0
-    global alpha = 0.5
+    global alpha = 1.0
 
 
     global grad_flow = Dict(zip(
@@ -407,7 +438,10 @@ function benders_sequential(master, subproblems, data, n_iteration_log, algo)
     
         
         # 4. Solve Subproblems and get subprgradients
-        local UB = investment_cost(separation_flow, separation_prod, data)
+        local UB = 0.0
+        if invest_free == false
+            UB += investment_cost(separation_flow, separation_prod, data)
+        end
         for s in 1:data.S
             solve(subproblems[s], true)
             UB += data.probability[s] * objective_value(subproblems[s].model)
@@ -573,27 +607,38 @@ end
 #########################################################################################
 # User options
 #########################################################################################
-N = 15
+N = 10
 graph_density = 20
-seed = 15
+seed = -1
 time_graph = @elapsed network = create_network(N, graph_density, seed, plotGraph = false, drawGraph = true)
 
 
 seed >= 0 ? Random.seed!(seed) : nothing
 
-scenarios = 2
-time_steps = 5
-demand_range = 100:1000
-prod_cost_range = 10:40
-unsupplied_cost = 500
+#=scenarios = 50
+time_steps = 24
+demand_range = 10:80
+prod_cost_range = 10:20
+unsupplied_cost = 300
+epsilon_flow = 0.1
+grad_prod = 0.3
+invest_cost_range = 100:500
+invest_prod_range = 50:200
+flow_init_max = 15=#
+scenarios = 50
+time_steps = 24
+demand_range = 100:500
+#prod_cost_range = 300:800
+prod_cost_range = 30:80
+unsupplied_cost = 1000
 epsilon_flow = 1.0
 grad_prod = 0.2
-invest_cost_range = 100:500
-invest_prod_range = 100:500
-flow_init_max = 500
+invest_cost_range = 500:1000
+invest_prod_range = 500:1000
+flow_init_max = 5
+
 time_data = @elapsed data = investment_problem_data_generator(scenarios, network, time_steps, demand_range, 
 prod_cost_range, unsupplied_cost, epsilon_flow, flow_init_max, grad_prod, invest_cost_range, invest_prod_range)
-
 
 # Benders problems creation
 time_master_prob_creation = @elapsed benders_master = create_master_benders_problem(data)
@@ -604,48 +649,99 @@ println()
 
 subproblems =  Vector{BendersSubroblem}(undef, scenarios)
 
-epsilon_cnt = 0.001
+
 counting_SPs =  Vector{BendersCountingSubroblem}(undef, scenarios)
 for s in 1:data.S
     subproblems[s] = create_benders_subproblem(data, s)
-    counting_SPs[s] = create_benders_subproblem_with_counting_unsupplied(data, s, epsilon_cnt)
+    #counting_SPs[s] = create_benders_subproblem_with_counting_unsupplied(data, s, epsilon_cnt)
     #println(subproblems[s].model)
 end
 
 
-benders_sequential(benders_master, subproblems, data, 1, "multicut")
-exit()
+
+# Heuristic Parameters
+global LB_inv = 0.0
+global UB_inv = 5e8 # a modifier with heuristic
+global heur_param = 0.2
+global Lambda_inv = 0.0
+global epsilon = 1e-3
+global max_unsupplied_ctr = 1.0
 
 
-max_unsupplied = 3
-investment_heuristic_benders(benders_master, subproblems, data, max_unsupplied, 1e-6, true, true)
-
-# Two phases resolution
-# 1. LP relaxation
-#unset_integer.(benders_master.invest_prod)
-
-benders_sequential(benders_master, subproblems, data)
-
-println(value.(benders_master.invest_prod))
+##### Feasibility check 
+set_invest_free_master(benders_master, data, 1e-3)
+#print(benders_master.model)
 
 
-# Evaluation du probleme stochastique
-time_stoch_prob_creation = @elapsed stoch_prob = create_invest_optim_problem(data)
+t_benders = @elapsed benders_sequential(benders_master, subproblems, data, 1, "multicut", true)
+t_counting = @elapsed global unsupplied_cnt = sum([ data.probability[s] * counting_unsupplied_scenario(subproblems[s], epsilon, data) for s in 1:data.S ])
 
-time_solve_stoch_prob = @elapsed solve(stoch_prob, false)
-
-if termination_status(stoch_prob.model) == MOI.TIME_LIMIT
-    println("TIME LIMIT reached")
+println("Time feasibility check : ", t_benders + t_counting)
+if unsupplied_cnt > 0
+    println("INFEASIBLE PROBLEM, minimum unsupplied  = ", unsupplied_cnt)
     exit()
 else
-    val_stoch_prob = objective_value(stoch_prob.model)
-    println("Problem value : ", val_stoch_prob)
-    println("Optimal solution")
-    println(value.(stoch_prob.invest_prod))
-    for e in data.network.edges
-        println(e, "  ", value(stoch_prob.invest_flow[e]))
-    end
-    println()
-    println("*************************")
+    UB_inv = master_solution_investment_cost(benders_master, data)
+    println("Max invest cost = ", UB_inv)
 end
 
+println("Sub : ", objective_value(subproblems[1].model))
+println("Sub : ", objective_value(subproblems[2].model))
+
+set_initial_objective_master(benders_master, data)
+
+
+
+t_benders = @elapsed benders_sequential(benders_master, subproblems, data, 1, "multicut", false)
+
+println(value.(benders_master.invest_prod))
+println(value.(benders_master.invest_flow))
+
+
+t_counting = @elapsed global unsupplied_cnt = sum([ data.probability[s] * counting_unsupplied_scenario(subproblems[s], epsilon, data) for s in 1:data.S ])
+if unsupplied_cnt <= max_unsupplied_ctr
+    UB_inv = Lambda_inv
+else
+    LB_inv = master_solution_investment_cost(benders_master, data)
+end
+
+@printf("%-20s%-20s%-20s%-20s%-20s%-20s%-15s%-20s%-20s\n", "Invest_min", "Invest_max", "Gap", "Constraint value", 
+            "Invest cost", "Objective", "Unsupplied", "Optim time", "Counting time" )
+
+invest_cost = investment_cost(benders_master, data)
+benders_val = objective_value(benders_master.model)
+@printf("%-20.6e%-20.6e%-20.2e%-20.6e%-20.6e%-20.6e%-15.2f%-20.6e%-20.6e\n", LB_inv, UB_inv, 
+            (UB_inv - LB_inv)/UB_inv, Lambda_inv, invest_cost,
+            benders_val, unsupplied_cnt, t_benders, t_counting)
+
+while UB_inv - LB_inv > 1e-3*UB_inv
+
+    # Compute Lambda
+    global Lambda_inv = heur_param*UB_inv + (1-heur_param)*LB_inv
+
+    # Modify RHS of investment cost constraint
+    set_normalized_rhs(constraint_by_name(benders_master.model, "invest_cost"), Lambda_inv)
+
+    # Solve
+    local t_benders = @elapsed benders_sequential(benders_master, subproblems, data, 1000, "multicut", false)
+
+    # Modify LB or UB
+    local t_counting = @elapsed global unsupplied_cnt = sum([ data.probability[s] * counting_unsupplied_scenario(subproblems[s], epsilon, data) for s in 1:data.S ])
+    if unsupplied_cnt <= max_unsupplied_ctr
+        global UB_inv = master_solution_investment_cost(benders_master, data)
+    else
+        global LB_inv = Lambda_inv
+    end
+    
+    @printf("%-20.6e%-20.6e%-20.2e%-20.6e%-20.6e%-20.6e%-15.2f%-20.6e%-20.6e\n", LB_inv, UB_inv, 
+            (UB_inv - LB_inv)/UB_inv, Lambda_inv, investment_cost(benders_master, data),
+            objective_value(benders_master.model), unsupplied_cnt, t_benders, t_counting )
+    
+end
+
+println(value.(benders_master.invest_prod))
+println(value.(benders_master.invest_flow))
+
+
+bilev = create_bilevel_invest_problem(data, epsilon, max_unsupplied_ctr)
+solve(bilev, false)

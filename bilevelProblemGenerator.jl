@@ -44,7 +44,7 @@ function create_bilevel_invest_problem
 """
 function create_bilevel_invest_problem(data, epsilon_cnt, max_unsupplied)
 
-    model = BilevelModel(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "TimeLimit" => 720), mode = BilevelJuMP.SOS1Mode())
+    model = BilevelModel(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 3600), mode = BilevelJuMP.SOS1Mode())
     #model = BilevelModel(CPLEX.Optimizer, mode = BilevelJuMP.SOS1Mode())
 
     # invest variables
@@ -54,6 +54,7 @@ function create_bilevel_invest_problem(data, epsilon_cnt, max_unsupplied)
 
     # Flow variables
     @variable(Lower(model), flow[s in 1:data.S, e in data.network.edges, t in 1:data.T])
+    @variable(Lower(model), 0 <= flow_abs[s in 1:data.S, e in data.network.edges, t in 1:data.T])
 
     # Production variables
     @variable(Lower(model), 0 <= prod[s in 1:data.S, n in 1:data.network.N, t in 1:data.T; 
@@ -80,7 +81,15 @@ function create_bilevel_invest_problem(data, epsilon_cnt, max_unsupplied)
     @constraint(Lower(model), flow_max_negative[s in 1:data.S, e in data.network.edges, t in 1:data.T], 
         -(invest_flow[e] + data.scenario[s].flow_init[e]) <= flow[s,e,t])
 
+
+    # Absolute value of flow in cost
+    @constraint(Lower(model), flow_abs_positive[s in 1:data.S, e in data.network.edges, t in 1:data.T], 
+        flow_abs[s,e,t] >= flow[s,e,t])
+    @constraint(Lower(model), flow_abs_negative[s in 1:data.S, e in data.network.edges, t in 1:data.T], 
+        flow_abs[s,e,t] >= -flow[s,e,t])
+
     
+    #Flow conservation
     @constraint(Lower(model), flow_conservation[s in 1:data.S, n in 1:data.network.N, t in 1:data.T], 
         sum(flow[s,e,t] for e in data.network.edges if e.to == n) - 
         sum(flow[s,e,t] for e in data.network.edges if e.from == n) + 
@@ -113,7 +122,7 @@ function create_bilevel_invest_problem(data, epsilon_cnt, max_unsupplied)
                     for n in 1:data.network.N 
                     if data.scenario[s].has_production[n] == 1) +
                 # flow cost
-                sum( data.scenario[s].flow_cost[e] * flow[s,e,t] 
+                sum( data.scenario[s].flow_cost[e] * flow_abs[s,e,t] 
                     for e in data.network.edges )
                 ) for t in 1:data.T
             )
@@ -139,7 +148,7 @@ function create_bilevel_invest_problem(data, epsilon_cnt, max_unsupplied)
                     for n in 1:data.network.N 
                     if data.scenario[s].has_production[n] == 1) +
                 # flow cost
-                sum( data.scenario[s].flow_cost[e] * flow[s,e,t] 
+                sum( data.scenario[s].flow_cost[e] * flow_abs[s,e,t] 
                     for e in data.network.edges )
                 ) for t in 1:data.T
             )
