@@ -68,39 +68,16 @@ struct BendersCountingSubroblem
 end
 
 
-#=function create_master_benders_problem(data)
-    model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
-    #model = Model(CPLEX.Optimizer)
-
-
-    # invest variables
-    @variable(model, 0 <= invest_flow[e in data.network.edges])
-    @variable(model, 0 <= invest_prod[n in 1:data.network.N; 
-        data.has_production[n] == 1])
-    
-    # Constraint to lead heuristic
-    @constraint(model, invest_cost,
-        sum( [data.invest_flow_cost[e] * invest_flow[e] for e in data.network.edges]) +
-        sum( data.invest_prod_cost[n] * invest_prod[n] for n in 1:data.network.N 
-            if data.has_production[n] == 1) >= 0.0
-        )
-
-    # Epigraph variables
-    @variable(model, theta_sum)
-    @variable(model, 0 <= theta[s in 1:data.S])
-
-    @constraint(model, epigrah_cost, theta_sum == sum( data.probability[s] * theta[s] for s in 1:data.S) )
-    
-    @objective(model, Min,
-        sum( data.invest_flow_cost[e] * invest_flow[e] for e in data.network.edges ) +
-        sum( data.invest_prod_cost[n] * invest_prod[n] for n in 1:data.network.N 
-            if data.has_production[n] == 1) +
-        theta_sum
-    )
-
-    return BendersMasterProblem(model, invest_flow, invest_prod, theta_sum, theta)
+mutable struct HeuristicData
+    invest_rhs::Float64
+    UB_inv::Float64
+    LB_inv::Float64
+    epsilon::Float64
+    alpha::Float64
+    best_solution_cost::Float64
+    best_flow_inv
+    best_prod_inv
 end
-=#
 
 function create_benders_subproblem(data, s)
     model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
@@ -376,7 +353,7 @@ function master_solution_investment_cost(master, data)
 end
 
 
-function benders_sequential(master, subproblems, data, n_iteration_log, algo, invest_free)
+function benders_sequential(master, subproblems, data, print_log, n_iteration_log, algo, invest_free, heuristic_data, check_heuristic)
 
     global best_UB = 1e20
     LB = -1e6
@@ -447,22 +424,35 @@ function benders_sequential(master, subproblems, data, n_iteration_log, algo, in
             UB += data.probability[s] * objective_value(subproblems[s].model)
         end
 
+
+        # Check if investment solution is bilevel feasible
+        if check_heuristic == true
+            unsupplied_cnt = sum([ data.probability[s] * counting_unsupplied_scenario(subproblems[s], heuristic_data.epsilon, data) for s in 1:data.S ])
+            if unsupplied_cnt <= heuristic_data.alpha
+                #println("Bilevel feasible solution found at cost = ", UB)
+                #println("Invest cost = ", investment_cost(separation_flow, separation_prod, data))
+                #println("Total cost  = ", UB)
+                if investment_cost(separation_flow, separation_prod, data) < heuristic_data.UB_inv
+                    heuristic_data.UB_inv = investment_cost(separation_flow, separation_prod, data)
+                end
+                if UB < heuristic_data.best_solution_cost
+                    heuristic_data.best_solution_cost = UB
+                    heuristic_data.best_flow_inv = separation_flow
+                    heuristic_data.best_prod_inv = separation_prod
+                end
+            end
+        end
+
+
         # Update UB
         if UB < best_UB
-            global alpha = min(1.0, 1.2*alpha)
+            #global alpha = min(1.0, 1.2*alpha)
             global best_UB = UB
             global best_invest_prod = separation_prod
             global best_invest_flow = separation_flow
         else
-            global alpha = max(0.1, 0.8*alpha)
+            #global alpha = max(0.1, 0.8*alpha)
         end
-
-
-        # Log
-        if iteration % log_freq == 0 #|| best_UB - LB <= 1e-6*best_UB
-            @printf("%-10i%-20.6e%-20.6e%-15.3e%15.3f\n", iteration, LB, best_UB, (best_UB-LB)/best_UB, alpha)
-        end
-
         
         # Stopping criterion
         if best_UB - LB <= 1e-6*best_UB
@@ -472,6 +462,7 @@ function benders_sequential(master, subproblems, data, n_iteration_log, algo, in
 
         # Get subgradients and build cut
         if stop == false
+
             local rhs = 0.0
 
             if algo == "monocut"
@@ -515,8 +506,11 @@ function benders_sequential(master, subproblems, data, n_iteration_log, algo, in
                 println("Unknown algorithm ", algo)
                 exit()
             end
+        end
 
-            
+        # Log
+        if print_log && ( stop == true || iteration % log_freq == 0 )
+            @printf("%-10i%-20.6e%-20.6e%-15.3e%15.3f\n", iteration, LB, best_UB, (best_UB-LB)/best_UB, alpha)
         end
     end
 end
@@ -609,7 +603,7 @@ end
 #########################################################################################
 N = 10
 graph_density = 20
-seed = -1
+seed = 3
 time_graph = @elapsed network = create_network(N, graph_density, seed, plotGraph = false, drawGraph = true)
 
 
@@ -625,8 +619,8 @@ grad_prod = 0.3
 invest_cost_range = 100:500
 invest_prod_range = 50:200
 flow_init_max = 15=#
-scenarios = 50
-time_steps = 24
+scenarios = 2
+time_steps = 5
 demand_range = 100:500
 #prod_cost_range = 300:800
 prod_cost_range = 30:80
@@ -658,7 +652,6 @@ for s in 1:data.S
 end
 
 
-
 # Heuristic Parameters
 global LB_inv = 0.0
 global UB_inv = 5e8 # a modifier with heuristic
@@ -666,14 +659,15 @@ global heur_param = 0.2
 global Lambda_inv = 0.0
 global epsilon = 1e-3
 global max_unsupplied_ctr = 1.0
-
+heuristic_data = HeuristicData(Lambda_inv, UB_inv, LB_inv, epsilon, max_unsupplied_ctr, 1e20, undef, undef)
 
 ##### Feasibility check 
 set_invest_free_master(benders_master, data, 1e-3)
 #print(benders_master.model)
 
-
-t_benders = @elapsed benders_sequential(benders_master, subproblems, data, 1, "multicut", true)
+println("#####################################")
+println("         Feasibility check           ")
+t_benders = @elapsed benders_sequential(benders_master, subproblems, data, true, 10, "multicut", true, heuristic_data, false)
 t_counting = @elapsed global unsupplied_cnt = sum([ data.probability[s] * counting_unsupplied_scenario(subproblems[s], epsilon, data) for s in 1:data.S ])
 
 println("Time feasibility check : ", t_benders + t_counting)
@@ -684,58 +678,71 @@ else
     UB_inv = master_solution_investment_cost(benders_master, data)
     println("Max invest cost = ", UB_inv)
 end
-
-println("Sub : ", objective_value(subproblems[1].model))
-println("Sub : ", objective_value(subproblems[2].model))
+println("#####################################")
+println()
 
 set_initial_objective_master(benders_master, data)
 
 
 
-t_benders = @elapsed benders_sequential(benders_master, subproblems, data, 1, "multicut", false)
+t_benders = @elapsed benders_sequential(benders_master, subproblems, data, true, 1, "multicut", false, heuristic_data, true)
 
+println("Stochastic problem solution")
+println()
 println(value.(benders_master.invest_prod))
+println()
 println(value.(benders_master.invest_flow))
-
+println()
 
 t_counting = @elapsed global unsupplied_cnt = sum([ data.probability[s] * counting_unsupplied_scenario(subproblems[s], epsilon, data) for s in 1:data.S ])
-if unsupplied_cnt <= max_unsupplied_ctr
-    UB_inv = Lambda_inv
+if unsupplied_cnt <= heuristic_data.alpha
+    heuristic_data.UB_inv = heuristic_data.invest_rhs
 else
-    LB_inv = master_solution_investment_cost(benders_master, data)
+    heuristic_data.LB_inv = master_solution_investment_cost(benders_master, data)
 end
 
-@printf("%-20s%-20s%-20s%-20s%-20s%-20s%-15s%-20s%-20s\n", "Invest_min", "Invest_max", "Gap", "Constraint value", 
+@printf("%-20s%-20s%-20s%-20s%-20s%-20s%-20s%-15s%-20s%-20s\n", "Best sol", "Invest_min", "Invest_max", "Gap", "Constraint value", 
             "Invest cost", "Objective", "Unsupplied", "Optim time", "Counting time" )
 
 invest_cost = investment_cost(benders_master, data)
 benders_val = objective_value(benders_master.model)
-@printf("%-20.6e%-20.6e%-20.2e%-20.6e%-20.6e%-20.6e%-15.2f%-20.6e%-20.6e\n", LB_inv, UB_inv, 
-            (UB_inv - LB_inv)/UB_inv, Lambda_inv, invest_cost,
-            benders_val, unsupplied_cnt, t_benders, t_counting)
+@printf("%-20.6e%-20.6e%-20.6e%-20.2e%-20.6e%-20.6e%-20.6e%-15.2f%-20.6e%-20.6e\n", heuristic_data.best_solution_cost, heuristic_data.LB_inv, 
+            heuristic_data.UB_inv, (heuristic_data.UB_inv - heuristic_data.LB_inv)/heuristic_data.UB_inv, 
+            heuristic_data.invest_rhs, invest_cost, benders_val, unsupplied_cnt, t_benders, t_counting
+        )
 
-while UB_inv - LB_inv > 1e-3*UB_inv
+while heuristic_data.UB_inv - heuristic_data.LB_inv > 1e-3*heuristic_data.UB_inv
 
     # Compute Lambda
-    global Lambda_inv = heur_param*UB_inv + (1-heur_param)*LB_inv
+    heuristic_data.invest_rhs = heur_param*heuristic_data.UB_inv + (1-heur_param)*heuristic_data.LB_inv
 
     # Modify RHS of investment cost constraint
-    set_normalized_rhs(constraint_by_name(benders_master.model, "invest_cost"), Lambda_inv)
+    set_normalized_rhs(constraint_by_name(benders_master.model, "invest_cost"), heuristic_data.invest_rhs)
 
     # Solve
-    local t_benders = @elapsed benders_sequential(benders_master, subproblems, data, 1000, "multicut", false)
+    local t_benders = @elapsed benders_sequential(benders_master, subproblems, data, false, 1, "multicut", false, heuristic_data, false)
+    invest_cost = investment_cost(benders_master, data)
+    benders_val = objective_value(benders_master.model)
 
     # Modify LB or UB
     local t_counting = @elapsed global unsupplied_cnt = sum([ data.probability[s] * counting_unsupplied_scenario(subproblems[s], epsilon, data) for s in 1:data.S ])
-    if unsupplied_cnt <= max_unsupplied_ctr
-        global UB_inv = master_solution_investment_cost(benders_master, data)
+    if unsupplied_cnt <= heuristic_data.alpha
+        if heuristic_data.UB_inv > master_solution_investment_cost(benders_master, data) 
+            heuristic_data.UB_inv = master_solution_investment_cost(benders_master, data)
+        end
+        if objective_value(benders_master.model) < heuristic_data.best_solution_cost
+            heuristic_data.best_solution_cost = objective_value(benders_master.model)
+            #heuristic_data.best_invest_flow = value.(benders_master.invest_flow)
+            #heuristic_data.best_invest_prod = value.(benders_master.invest_prod)
+        end
     else
-        global LB_inv = Lambda_inv
+        heuristic_data.LB_inv = heuristic_data.invest_rhs
     end
     
-    @printf("%-20.6e%-20.6e%-20.2e%-20.6e%-20.6e%-20.6e%-15.2f%-20.6e%-20.6e\n", LB_inv, UB_inv, 
-            (UB_inv - LB_inv)/UB_inv, Lambda_inv, investment_cost(benders_master, data),
-            objective_value(benders_master.model), unsupplied_cnt, t_benders, t_counting )
+    @printf("%-20.6e%-20.6e%-20.6e%-20.2e%-20.6e%-20.6e%-20.6e%-15.2f%-20.6e%-20.6e\n", heuristic_data.best_solution_cost, heuristic_data.LB_inv, 
+            heuristic_data.UB_inv, (heuristic_data.UB_inv - heuristic_data.LB_inv)/heuristic_data.UB_inv, 
+            heuristic_data.invest_rhs, invest_cost, benders_val, unsupplied_cnt, t_benders, t_counting
+        )
     
 end
 
