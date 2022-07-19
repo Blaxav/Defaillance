@@ -2,6 +2,7 @@
 # Import management
 #########################################################################################
 include("import_management.jl")
+include("options.jl")
 
 #########################################################################################
 # Network type
@@ -241,6 +242,14 @@ function create_network(N, graph_density, seed; gridRatio = 1.5, proportion=0.00
     end
 
     return Network(N, positions, edges, length(edges))
+end
+
+function create_network(options; drawGraph = true, plotGraph = false)
+    create_network(
+        options.N, options.graph_density, options.seed; 
+        gridRatio = 1.5, proportion=0.005, 
+        drawGraph = drawGraph, plotGraph = plotGraph
+    )
 end
 
 #########################################################################################

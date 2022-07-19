@@ -138,3 +138,12 @@ function investment_problem_data_generator(scenarios, network, time_steps, deman
     return StochasticProblemData(scenarios, data_flow, proba, network, has_production, time_steps, 
         invest_flow_cost, invest_prod_cost, flow_init, grad_prod)
 end
+
+
+function investment_problem_data_generator(options, network)
+    investment_problem_data_generator(
+        options.scenarios, network, options.time_steps, options.demand_range, 
+        options.prod_cost_range, options.unsupplied_cost, options.epsilon_flow, 
+        options.flow_init_max, options.grad_prod, options.invest_cost_range, 
+        options.invest_prod_range)
+end
