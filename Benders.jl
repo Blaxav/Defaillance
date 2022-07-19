@@ -446,12 +446,12 @@ function benders_sequential(master, subproblems, data, print_log, n_iteration_lo
 
         # Update UB
         if UB < best_UB
-            #global alpha = min(1.0, 1.2*alpha)
+            global alpha = min(1.0, 1.2*alpha)
             global best_UB = UB
             global best_invest_prod = separation_prod
             global best_invest_flow = separation_flow
         else
-            #global alpha = max(0.1, 0.8*alpha)
+            global alpha = max(0.1, 0.8*alpha)
         end
         
         # Stopping criterion
@@ -601,7 +601,7 @@ end
 #########################################################################################
 # User options
 #########################################################################################
-N = 10
+N = 30
 graph_density = 20
 seed = 3
 time_graph = @elapsed network = create_network(N, graph_density, seed, plotGraph = false, drawGraph = true)
@@ -619,8 +619,8 @@ grad_prod = 0.3
 invest_cost_range = 100:500
 invest_prod_range = 50:200
 flow_init_max = 15=#
-scenarios = 2
-time_steps = 5
+scenarios = 10
+time_steps = 20
 demand_range = 100:500
 #prod_cost_range = 300:800
 prod_cost_range = 30:80
@@ -704,8 +704,8 @@ end
 @printf("%-20s%-20s%-20s%-20s%-20s%-20s%-20s%-15s%-20s%-20s\n", "Best sol", "Invest_min", "Invest_max", "Gap", "Constraint value", 
             "Invest cost", "Objective", "Unsupplied", "Optim time", "Counting time" )
 
-invest_cost = investment_cost(benders_master, data)
-benders_val = objective_value(benders_master.model)
+global invest_cost = investment_cost(benders_master, data)
+global benders_val = objective_value(benders_master.model)
 @printf("%-20.6e%-20.6e%-20.6e%-20.2e%-20.6e%-20.6e%-20.6e%-15.2f%-20.6e%-20.6e\n", heuristic_data.best_solution_cost, heuristic_data.LB_inv, 
             heuristic_data.UB_inv, (heuristic_data.UB_inv - heuristic_data.LB_inv)/heuristic_data.UB_inv, 
             heuristic_data.invest_rhs, invest_cost, benders_val, unsupplied_cnt, t_benders, t_counting
@@ -721,8 +721,8 @@ while heuristic_data.UB_inv - heuristic_data.LB_inv > 1e-3*heuristic_data.UB_inv
 
     # Solve
     local t_benders = @elapsed benders_sequential(benders_master, subproblems, data, false, 1, "multicut", false, heuristic_data, false)
-    invest_cost = investment_cost(benders_master, data)
-    benders_val = objective_value(benders_master.model)
+    global invest_cost = investment_cost(benders_master, data)
+    global benders_val = objective_value(benders_master.model)
 
     # Modify LB or UB
     local t_counting = @elapsed global unsupplied_cnt = sum([ data.probability[s] * counting_unsupplied_scenario(subproblems[s], epsilon, data) for s in 1:data.S ])
