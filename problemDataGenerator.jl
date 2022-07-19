@@ -1,7 +1,7 @@
 #########################################################################################
 # Import management
 #########################################################################################
-if "--install-packages" in ARGS
+#=if "--install-packages" in ARGS
     import Pkg
     Pkg.add("Random")
     Pkg.add("Plots")
@@ -21,9 +21,9 @@ catch
     println("ERROR : Some recquired packages not found.")
     println("        Run with option --install-packages to install them")
     exit()
-end
+end=#
 
-include("graphGenerator.jl")
+include("graph.jl")
 
 ##################################################################################################
 # Network investment problem class
@@ -57,6 +57,8 @@ struct StochasticProblemData
     T::Int # Time steps
     invest_flow_cost::Dict{Edge, Float64}
     invest_prod_cost::Dict{Int, Float64}
+    flow_init::Dict{Edge, Int}
+    grad_prod::Float64
 end
 
 
@@ -65,7 +67,7 @@ function sample_network_data
     brief: Generates a random vector of NetworkFlowProblemData for each scenario
 """
 function sample_network_data(scenarios, network, time_steps, demand_range, 
-    prod_cost_range, unsupplied_cost, epsilon_flow, flow_init_max, grad_prod, has_production)
+    prod_cost_range, unsupplied_cost, epsilon_flow, flow_init, grad_prod, has_production)
 
     data_flow = Vector{NetworkFlowProblemData}(undef, scenarios)
     for s in 1:scenarios
@@ -83,10 +85,11 @@ function sample_network_data(scenarios, network, time_steps, demand_range,
             0.01 * rand(1:100, network.n_edges)
             ))
         
-        flow_init = Dict(zip(
+        #=flow_init = Dict(zip(
             network.edges,
             rand(0:flow_init_max, network.n_edges)
             ))
+        =#
 
         data_flow[s] = NetworkFlowProblemData(network, demands, 
             has_production, unsupplied_cost, prod_cost, flow_cost, 
@@ -115,16 +118,23 @@ function investment_problem_data_generator(scenarios, network, time_steps, deman
         has_production[1] = 1
     end
 
+    flow_init = Dict(zip(
+        network.edges,
+        rand(0:flow_init_max, network.n_edges)
+        ))
+
     # Network flow data
     data_flow = sample_network_data(scenarios, network, time_steps, demand_range, 
-    prod_cost_range, unsupplied_cost, epsilon_flow, flow_init_max, grad_prod, has_production)
+    prod_cost_range, unsupplied_cost, epsilon_flow, flow_init, grad_prod, has_production)
 
     # Sampling investment costs
     invest_flow_cost = Dict(zip(network.edges, rand(invest_cost_range, network.n_edges)))
     
     prod_nodes = [i for i in 1:network.N if data_flow[1].has_production[i] == 1]
     invest_prod_cost = Dict(zip(prod_nodes, rand(invest_prod_range, length(prod_nodes) )))
+
+
     
     return StochasticProblemData(scenarios, data_flow, proba, network, has_production, time_steps, 
-        invest_flow_cost, invest_prod_cost)
+        invest_flow_cost, invest_prod_cost, flow_init, grad_prod)
 end
