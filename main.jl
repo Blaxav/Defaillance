@@ -25,7 +25,8 @@ println()
 
 if options.algorithm == "bilevel"
 
-    t_creation = @elapsed bilev = create_bilevel_invest_problem(data; unsupplied_tolerance=1e-3, max_unsupplied=3)
+    t_creation = @elapsed bilev = create_bilevel_invest_problem(data; unsupplied_tolerance=1e-3, max_unsupplied=0)
+    
     t_solve = @elapsed solve(bilev; silent_mode=false)
     println()
     println("############################")

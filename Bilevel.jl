@@ -24,8 +24,12 @@ function create_bilevel_invest_problem(data; unsupplied_tolerance=1e-6, max_unsu
     #model = BilevelModel(
     #    optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 3600), 
     #    mode = BilevelJuMP.SOS1Mode())
-    model = BilevelModel(CPLEX.Optimizer, mode = BilevelJuMP.SOS1Mode())
-    set_optimizer_attribute(model, "CPXPARAM_Threads", 1)
+    #model = BilevelModel(CPLEX.Optimizer, mode = BilevelJuMP.SOS1Mode())
+    #set_optimizer_attribute(model, "CPXPARAM_Threads", 1)
+
+    model = BilevelModel(
+        optimizer_with_attributes(() -> CPLEX.Optimizer(), "CPXPARAM_Threads" => 1, "CPXPARAM_TimeLimit" => 3600), 
+        mode = BilevelJuMP.SOS1Mode())
 
     # invest variables
     invest_flow = variables_investment_flow(Upper(model), data)
