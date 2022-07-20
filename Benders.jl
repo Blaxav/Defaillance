@@ -113,6 +113,45 @@ function create_master_benders_problem(data)
 end
 
 
+################################################################
+# Benders algorithm functions
+################################################################
+function compute_separation_point(candidate_flow, candidate_prod, 
+    separation_flow, separation_prod, alpha, data)
+
+    for e in data.network.edges
+        separation_flow[e] = alpha * candidate_flow[e] + (1-alpha) * best_invest_flow[e]
+    end
+    for n in 1:data.network.N 
+        if data.scenario[1].has_production[n] == 1
+            separation_prod[n] = alpha * candidate_prod[n] + (1-alpha) * best_invest_prod[n]
+        end
+    end
+end
+
+function compute_ub(subproblems, separation_flow, separation_prod, data; invest_free=false)
+    UB = 0
+    if invest_free == false
+        UB += investment_cost(separation_flow, separation_prod, data)
+    end
+    for s in 1:data.S
+        UB += data.probability[s] * get_objective_value(subproblems[s])
+    end
+    return UB
+end
+
+function update_best_solution(UB, best_UB, alpha, best_invest_flow, best_invest_prod)
+    if UB < best_UB
+        global alpha = min(1.0, 1.2*alpha)
+        global best_UB = UB
+        global best_invest_prod = separation_prod
+        global best_invest_flow = separation_flow
+    else
+        global alpha = max(0.1, 0.8*alpha)
+    end
+end
+
+
 function benders_sequential(master, subproblems, data, print_log, n_iteration_log, algo, invest_free, heuristic_data, check_heuristic)
 
     global best_UB = 1e20
@@ -165,28 +204,34 @@ function benders_sequential(master, subproblems, data, print_log, n_iteration_lo
         candidate_flow, candidate_prod = get_master_solution(master)
         LB = get_objective_value(master)
 
-        for e in data.network.edges
+        compute_separation_point(candidate_flow, candidate_prod, 
+            separation_flow, separation_prod, alpha, data)
+        #=for e in data.network.edges
             global separation_flow[e] = alpha * candidate_flow[e] + (1-alpha) * best_invest_flow[e]
         end
         for n in 1:network.N 
             if data.scenario[1].has_production[n] == 1
                 global separation_prod[n] = alpha * candidate_prod[n] + (1-alpha) * best_invest_prod[n]
             end
-        end
+        end=#
 
         # 3. Fix investment candidates in subproblems
         fix_first_stage_candidate(subproblems, separation_flow, separation_prod, data)
     
         
         # 4. Solve Subproblems and get subprgradients
-        local UB = 0.0
+        for s in 1:data.S
+            solve(subproblems[s]; silent_mode=true)
+        end
+
+        local UB = compute_ub(subproblems, separation_flow, separation_prod, data; invest_free)
+        #=local UB = 0.0
         if invest_free == false
             UB += investment_cost(separation_flow, separation_prod, data)
         end
         for s in 1:data.S
-            solve(subproblems[s]; silent_mode=true)
             UB += data.probability[s] * get_objective_value(subproblems[s])
-        end
+        end=#
 
 
         # Check if investment solution is bilevel feasible
@@ -209,14 +254,15 @@ function benders_sequential(master, subproblems, data, print_log, n_iteration_lo
 
 
         # Update UB
-        if UB < best_UB
+        update_best_solution(UB, best_UB, alpha, best_invest_flow, best_invest_prod)
+        #=if UB < best_UB
             global alpha = min(1.0, 1.2*alpha)
             global best_UB = UB
             global best_invest_prod = separation_prod
             global best_invest_flow = separation_flow
         else
             global alpha = max(0.1, 0.8*alpha)
-        end
+        end=#
         
         # Stopping criterion
         if best_UB - LB <= 1e-6*best_UB
@@ -312,9 +358,7 @@ function run_benders(options, data)
 end
 
 
-################################################################
-# Benders algorithm functions
-################################################################
+
 
 
 #=function create_benders_subproblem_with_counting_unsupplied(data, s, epsilon_cnt)
