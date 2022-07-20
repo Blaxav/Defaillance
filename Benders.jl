@@ -60,8 +60,9 @@ create_benders_subproblem : Returns a subproblem of Benders decomposition
     s::Int64                        : Index of scenario
 """
 function create_benders_subproblem(data, s)
-    model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
-    #model = Model(CPLEX.Optimizer)
+    #model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
+    model = Model(CPLEX.Optimizer)
+    set_optimizer_attribute(model, "CPXPARAM_Threads", 1)
 
     # invest variables
     invest_flow = variables_investment_flow(model, data)
@@ -102,7 +103,9 @@ end
 create_master_benders_problem : Returns a Master problem of Benders decomposition
 """
 function create_master_benders_problem(data)
-    model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
+    #model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
+    model = Model(CPLEX.Optimizer)
+    set_optimizer_attribute(model, "CPXPARAM_Threads", 1)
 
     # invest variables
     invest_flow = variables_investment_flow(model, data)

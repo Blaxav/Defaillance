@@ -12,11 +12,11 @@ graph_density = 10
 ####################################
 # Problem datas
 ####################################
-scenarios           = 50
-time_steps          = 24
+scenarios           = 5
+time_steps          = 2
 demand_range        = 50:400
-prod_cost_range     = 200:800
-unsupplied_cost     = 1000
+prod_cost_range     = 20:80
+unsupplied_cost     = 5000
 epsilon_flow        = 0.1
 grad_prod           = 0.1
 invest_cost_range   = 1000:8000
@@ -26,4 +26,4 @@ flow_init_max       = 0.0
 ####################################
 # Algorithm
 ####################################
-algorithm = bilevel
+algorithm = benders

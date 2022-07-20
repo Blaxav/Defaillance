@@ -6,7 +6,8 @@ if "--install-packages" in ARGS
     Pkg.add("Random")
     Pkg.add("Plots")
     Pkg.add("JuMP")
-    Pkg.add("Gurobi")
+    #Pkg.add("Gurobi")
+    Pkg.add("CPLEX")
     Pkg.add("Dualization")
     Pkg.add("BilevelJuMP")
 end
@@ -21,7 +22,8 @@ try
     using Random
     using Plots
     using Printf
-    using JuMP, Gurobi
+    using JuMP#, Gurobi
+    using CPLEX
     using BilevelJuMP
 catch
     println("ERROR : Some recquired packages not found.")

@@ -27,7 +27,7 @@ if options.algorithm == "bilevel"
     println("############################")
     println("Solution")
     println("############################")
-    print_solution(master, data; null_tolerance=1e-6)
+    print_solution(bilev, data; null_tolerance=1e-6)
 
     println()
     println("Creation problem time = ", t_creation)
