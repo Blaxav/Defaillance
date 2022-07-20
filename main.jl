@@ -4,7 +4,8 @@ include("Bilevel.jl")
 #################################################
 # Read option file
 #################################################
-options = read_option_file("options.txt")
+options_path = ARGS[1]
+options = read_option_file(options_path)
 print_options(options)
 
 #################################################

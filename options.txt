@@ -1,27 +1,27 @@
 ####################################
 # Seed
 ####################################
-seed = 151
+seed = 1
 
 ####################################
 # Graph options
 ####################################
 N = 10
-graph_density = 20
+graph_density = 10
 
 ####################################
 # Problem datas
 ####################################
 scenarios           = 50
 time_steps          = 24
-demand_range        = 100:500
-prod_cost_range     = 300:800
+demand_range        = 50:400
+prod_cost_range     = 200:800
 unsupplied_cost     = 1000
-epsilon_flow        = 1.0
-grad_prod           = 0.2
-invest_cost_range   = 500:1000
-invest_prod_range   = 500:1000
-flow_init_max       = 5
+epsilon_flow        = 0.1
+grad_prod           = 0.1
+invest_cost_range   = 1000:8000
+invest_prod_range   = 1000:8000
+flow_init_max       = 0.0
 
 ####################################
 # Algorithm

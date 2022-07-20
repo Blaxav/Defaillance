@@ -46,7 +46,7 @@ function parse_option_line(options, line)
         return
     else
         keyword = rstrip(split(line, "=")[1])
-        value = lstrip(split(line, "=")[2])
+        value = lstrip(rstrip(split(line, "=")[2]))
         if keyword == "N"
             options.N = parse(Int64, value)
         elseif keyword == "graph_density"
