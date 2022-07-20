@@ -147,3 +147,8 @@ function investment_problem_data_generator(options, network)
         options.flow_init_max, options.grad_prod, options.invest_cost_range, 
         options.invest_prod_range)
 end
+
+
+function production_nodes(data)
+    ( n for n in 1:data.network.N if data.has_production[n] == 1 )
+end

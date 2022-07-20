@@ -194,16 +194,20 @@ function get_objective_value(problem)
 end
 
 
-
-
-
-
-
-
-
-
-
-
+function print_solution(problem, data; null_tolerance=1e-6)
+    invest_prod_sol = value.(problem.invest_prod)
+    invest_flow_sol = value.(problem.invest_flow)
+    for n in production_nodes(data)
+        if invest_prod_sol[n] > null_tolerance
+            @printf("Node %-15i%-10.3f\n", n, invest_prod_sol[n])
+        end
+    end
+    for e in data.network.edges
+        if invest_flow_sol[e] > null_tolerance
+            @printf("%-20s%-10.2f\n", e, invest_flow_sol[e])
+        end
+    end
+end
 
 
 

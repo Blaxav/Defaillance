@@ -89,3 +89,14 @@ function parse_option_line(options, line)
         end
     end
 end
+
+function print_options(options)
+    println("###################")
+    println("# OPTIONS")
+    println("###################")
+    for n in fieldnames(typeof(options))
+        @printf("%-25s", n)
+        println(getfield(options,n))
+    end
+    println()
+end

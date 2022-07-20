@@ -1,29 +1,29 @@
 ####################################
 # Seed
 ####################################
-seed = 5
+seed = 151
 
 ####################################
 # Graph options
 ####################################
-N = 15
+N = 10
 graph_density = 20
 
 ####################################
 # Problem datas
 ####################################
-scenarios           = 10
-time_steps          = 20
+scenarios           = 50
+time_steps          = 24
 demand_range        = 100:500
-prod_cost_range     = 30:80
+prod_cost_range     = 300:800
 unsupplied_cost     = 1000
 epsilon_flow        = 1.0
 grad_prod           = 0.2
 invest_cost_range   = 500:1000
 invest_prod_range   = 500:1000
-flow_init_max       = 200
+flow_init_max       = 5
 
 ####################################
 # Algorithm
 ####################################
-algorithm = benders
+algorithm = bilevel
