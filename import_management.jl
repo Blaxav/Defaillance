@@ -13,8 +13,8 @@ if "--install-packages" in ARGS
 end
 
 if "--compile" in ARGS
-    include("compile_plotpackage.jl")
-    println("Packages compiled. Relaunch without '--compile' and with '--sysimage sys_plots.so'")
+    include("compile_external_packages.jl")
+    println("Packages compiled. Relaunch without '--compile' and with '--sysimage lib.dll or lib.so'")
     exit
 end
 

@@ -1,6 +1,10 @@
 include("Benders.jl")
 include("Bilevel.jl")
 
+#if "--compile" in ARGS
+##    include("small_exec_compiler.jl")
+#end 
+
 #################################################
 # Read option file
 #################################################

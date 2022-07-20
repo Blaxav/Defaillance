@@ -26,4 +26,4 @@ flow_init_max       = 0.0
 ####################################
 # Algorithm
 ####################################
-algorithm = benders
+algorithm = bilevel
