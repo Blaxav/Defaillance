@@ -67,7 +67,7 @@ function sample_network_data
     brief: Generates a random vector of NetworkFlowProblemData for each scenario
 """
 function sample_network_data(scenarios, network, time_steps, demand_range, 
-    prod_cost_range, unsupplied_cost, epsilon_flow, flow_init, grad_prod, has_production)
+    prod_cost_range, unsupplied_cost, flow_cost_range, flow_init, grad_prod, has_production)
 
     data_flow = Vector{NetworkFlowProblemData}(undef, scenarios)
     for s in 1:scenarios
@@ -82,7 +82,7 @@ function sample_network_data(scenarios, network, time_steps, demand_range,
 
         flow_cost = Dict(zip(
             network.edges,
-            0.01 * rand(1:100, network.n_edges)
+            rand(flow_cost_range, network.n_edges)
             ))
         
         #=flow_init = Dict(zip(
@@ -107,7 +107,7 @@ end
 
 
 function investment_problem_data_generator(scenarios, network, time_steps, demand_range, 
-    prod_cost_range, unsupplied_cost, epsilon_flow, flow_init_max, grad_prod, invest_cost_range, invest_prod_range)
+    prod_cost_range, unsupplied_cost, flow_cost_range, flow_init_max, grad_prod, invest_flow_range, invest_prod_range)
 
     # Samplng probabilities
     proba = generate_probabilities(scenarios)
@@ -125,10 +125,10 @@ function investment_problem_data_generator(scenarios, network, time_steps, deman
 
     # Network flow data
     data_flow = sample_network_data(scenarios, network, time_steps, demand_range, 
-    prod_cost_range, unsupplied_cost, epsilon_flow, flow_init, grad_prod, has_production)
+    prod_cost_range, unsupplied_cost, flow_cost_range, flow_init, grad_prod, has_production)
 
     # Sampling investment costs
-    invest_flow_cost = Dict(zip(network.edges, rand(invest_cost_range, network.n_edges)))
+    invest_flow_cost = Dict(zip(network.edges, rand(invest_flow_range, network.n_edges)))
     
     prod_nodes = [i for i in 1:network.N if data_flow[1].has_production[i] == 1]
     invest_prod_cost = Dict(zip(prod_nodes, rand(invest_prod_range, length(prod_nodes) )))
@@ -143,8 +143,8 @@ end
 function investment_problem_data_generator(options, network)
     investment_problem_data_generator(
         options.scenarios, network, options.time_steps, options.demand_range, 
-        options.prod_cost_range, options.unsupplied_cost, options.epsilon_flow, 
-        options.flow_init_max, options.grad_prod, options.invest_cost_range, 
+        options.prod_cost_range, options.unsupplied_cost, options.flow_cost_range, 
+        options.flow_init_max, options.grad_prod, options.invest_flow_range, 
         options.invest_prod_range)
 end
 

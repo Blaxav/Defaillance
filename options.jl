@@ -10,9 +10,9 @@ mutable struct GlobalOptions
     demand_range
     prod_cost_range
     unsupplied_cost
-    epsilon_flow
+    flow_cost_range
     grad_prod
-    invest_cost_range
+    invest_flow_range
     invest_prod_range
     flow_init_max
     algorithm
@@ -21,7 +21,7 @@ end
 function define_default_options()
     GlobalOptions(
         1, 100, 0, 1, 1, 
-        1:1, 1:1, 1000, 0.1,
+        1:1, 1:1, 1000, 1:1,
         1.0, 1:1, 1:1, 0.0, "stochastic"
     )
 end
@@ -67,14 +67,16 @@ function parse_option_line(options, line)
             options.prod_cost_range = min_val:max_val
         elseif keyword == "unsupplied_cost"
             options.unsupplied_cost = parse(Float64, value)
-        elseif keyword == "epsilon_flow"
-            options.epsilon_flow = parse(Float64, value)
-        elseif keyword == "grad_prod"
-            options.grad_prod = parse(Float64, value)
-        elseif keyword == "invest_cost_range"
+        elseif keyword == "flow_cost_range"
             min_val = parse(Int64, split(value, ":")[1])
             max_val = parse(Int64, split(value, ":")[2])
-            options.invest_cost_range = min_val:max_val
+            options.flow_cost_range = min_val:max_val
+        elseif keyword == "grad_prod"
+            options.grad_prod = parse(Float64, value)
+        elseif keyword == "invest_flow_range"
+            min_val = parse(Int64, split(value, ":")[1])
+            max_val = parse(Int64, split(value, ":")[2])
+            options.invest_flow_range = min_val:max_val
         elseif keyword == "invest_prod_range"
             min_val = parse(Int64, split(value, ":")[1])
             max_val = parse(Int64, split(value, ":")[2])
