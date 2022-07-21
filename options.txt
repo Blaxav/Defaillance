@@ -6,14 +6,14 @@ seed = 0
 ####################################
 # Graph options
 ####################################
-N = 10
+N = 30
 graph_density = 10
 
 ####################################
 # Problem datas
 ####################################
-scenarios           = 2
-time_steps          = 4
+scenarios           = 10
+time_steps          = 100
 demand_range        = 50:400
 prod_cost_range     = 20:80
 unsupplied_cost     = 5000
@@ -26,4 +26,10 @@ flow_init_max       = 0.0
 ####################################
 # Algorithm
 ####################################
-algorithm = bilevel
+algorithm = benders
+cut_aggregation = monocut
+check_frequency = Opt
+check_strategy = Rand
+bilevel_mode = Big-M
+primal_big_M = 3000
+dual_big_M = 5500

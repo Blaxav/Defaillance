@@ -30,6 +30,13 @@ struct BendersSubroblem
     has_unsupplied
 end
 
+mutable struct Solution
+    flow
+    prod
+    val
+    unsupplied
+end
+
 mutable struct HeuristicData
     invest_rhs::Float64
     UB_inv::Float64
@@ -189,8 +196,8 @@ function compute_multicut_gradient_and_rhs(cut_data, subproblems, data, s)
     cut_data.grad_prod = reduced_cost.(subproblems[s].invest_prod)
 end
 
-function add_cuts(master, subproblems, data, cut_data; algo="monocut")
-    if algo == "monocut"
+function add_cuts(master, subproblems, data, cut_data, algo)
+    if algo.cut_aggregation == "monocut"
         compute_monocut_gradient_and_rhs(cut_data, subproblems, data)
     
         @constraint(master.model, master.theta_sum >= 
@@ -198,7 +205,7 @@ function add_cuts(master, subproblems, data, cut_data; algo="monocut")
             sum( cut_data.grad_flow[e] * (master.invest_flow[e] - separation_flow[e]) for e in data.network.edges) +
             sum( cut_data.grad_prod[n] * (master.invest_prod[n] - separation_prod[n]) for n in production_nodes(data))
         )
-    elseif algo == "multicut"
+    elseif algo.cut_aggregation == "multicut"
         for s in 1:data.S   
             compute_multicut_gradient_and_rhs(cut_data, subproblems, data, s)
 
@@ -214,13 +221,24 @@ function add_cuts(master, subproblems, data, cut_data; algo="monocut")
     end
 end
 
+"""
+function counting_unsupplied_scenario
+    brief: Computes the number of nodes which loss of load for a given scenario after optimization
+"""
+function counting_unsupplied_scenario(prob, epsilon, data)
+    #return sum( value(prob.unsupplied[n,t]) > epsilon ? 1 : 0 for n in 1:data.network.N, t in 1:data.T )
+    length( filter(x -> x > epsilon, value.(prob.unsupplied)) )
+end
+
 
 
 ################################################################
 # Benders algorithm
 ################################################################
-function benders_sequential(master, subproblems, data, print_log, n_iteration_log, algo, invest_free, heuristic_data, check_heuristic)
+function benders_sequential(master, subproblems, data, algo, heuristic_data; 
+    print_log=true, n_iteration_log=1, invest_free=false, check_heuristic=false)
 
+    
     global best_UB = 1e20
     LB = -1e6
     global best_invest_flow = Dict(zip(
@@ -240,17 +258,9 @@ function benders_sequential(master, subproblems, data, print_log, n_iteration_lo
             [0.0 for i in 1:sum(data.scenario[1].has_production)]
             ))
     global iteration = 0
-    global alpha = 1.0
+    global alpha = 0.1
 
-    local cut_data = CutData(
-        undef, undef, 
-        Dict(zip(
-            data.network.edges,
-            [0.0 for e in data.network.edges])),
-        Dict(zip(
-            [i for i in production_nodes(data)],
-            [0.0 for i in 1:sum(data.has_production)])),
-        0.0 )
+    local cut_data = CutData(edge_dict(), prod_dict(), edge_dict(), prod_dict(), 0.0)
 
     global log_freq = n_iteration_log
     global stop = false
@@ -273,56 +283,40 @@ function benders_sequential(master, subproblems, data, print_log, n_iteration_lo
         compute_separation_point(candidate_flow, candidate_prod, 
             separation_flow, separation_prod, alpha, data)
 
-        
-        separation_prod[1] = 382.0
-        separation_prod[2] = 2200.50
-        separation_prod[4] = 308.50
-
-        for e in data.network.edges
-            separation_flow[e] = 0.0
-        end
-        separation_flow[Edge(2,5)] = 865.0
-        separation_flow[Edge(6,9)] = 299.0
-        separation_flow[Edge(2,10)] = 663.50
-        separation_flow[Edge(4,10)] = 71.50
-        separation_flow[Edge(8,9)] = 201.0
-        separation_flow[Edge(5,6)] = 612.0
-        separation_flow[Edge(3,10)] = 390.0
-        separation_flow[Edge(2,7)] = 396.0
-
         # 3. Fix investment candidates in subproblems
         fix_first_stage_candidate(subproblems, separation_flow, separation_prod, data)
     
         
         # 4. Solve Subproblems and get subprgradients
-        true_unsup = 0.0
-        SP_cnt =  Vector{BendersSubroblem}(undef, data.S)
-        for s in 1:data.S
-            SP_cnt[s] = create_benders_subproblem_with_counting(data, s)
-        end
-        fix_first_stage_candidate(SP_cnt, separation_flow, separation_prod, data)
+        #true_unsup = 0.0
+        #SP_cnt =  Vector{BendersSubroblem}(undef, data.S)
+        #for s in 1:data.S
+        #    SP_cnt[s] = create_benders_subproblem_with_counting(data, s)
+        #end
+        #fix_first_stage_candidate(SP_cnt, separation_flow, separation_prod, data)
 
         for s in 1:data.S
             solve(subproblems[s]; silent_mode=true)
-            cost = objective_value(subproblems[s].model)
-            println("Cost = ", cost, "  SP ", s)
+            
+            #cost = objective_value(subproblems[s].model)
+            #println("Cost = ", cost, "  SP ", s)
             
             # Solving counting SPs
-            set_normalized_rhs(SP_cnt[s].cost_constraint, cost + 1e-6)
-            solve(SP_cnt[s]; silent_mode=false)
-            true_unsup += data.probability[s] * objective_value(SP_cnt[s].model)
+            #set_normalized_rhs(SP_cnt[s].cost_constraint, cost + 1e-6)
+            #solve(SP_cnt[s]; silent_mode=false)
+            #true_unsup += data.probability[s] * objective_value(SP_cnt[s].model)
         end
-        println("Min Unsupplied = ", true_unsup)
+        #println("Min Unsupplied = ", true_unsup)
         local UB = compute_ub(subproblems, separation_flow, separation_prod, data; invest_free)
 
 
-        unsupplied_cnt = sum([ data.probability[s] * counting_unsupplied_scenario(subproblems[s], 0.001, data) for s in 1:data.S ])
-        println("Unsupplied = ", unsupplied_cnt)
-        println("Val = ", UB)
-        exit()
+        #unsupplied_cnt = sum([ data.probability[s] * counting_unsupplied_scenario(subproblems[s], 0.001, data) for s in 1:data.S ])
+        #println("Unsupplied = ", unsupplied_cnt)
+        #println("Val = ", UB)
+        #exit()
 
         # Check if investment solution is bilevel feasible
-        if check_heuristic == true
+        #=if check_heuristic == true
             unsupplied_cnt = sum([ data.probability[s] * counting_unsupplied_scenario(subproblems[s], heuristic_data.epsilon, data) for s in 1:data.S ])
             if unsupplied_cnt <= heuristic_data.alpha
                 if investment_cost(separation_flow, separation_prod, data) < heuristic_data.UB_inv
@@ -334,7 +328,7 @@ function benders_sequential(master, subproblems, data, print_log, n_iteration_lo
                     heuristic_data.best_prod_inv = separation_prod
                 end
             end
-        end
+        end=#
 
 
         # Update UB
@@ -350,7 +344,7 @@ function benders_sequential(master, subproblems, data, print_log, n_iteration_lo
         # as adding cuts erase all information about any optimal solution got
         # by solving the master problem
         if stop == false
-            add_cuts(master, subproblems, data, cut_data; algo=algo)
+            add_cuts(master, subproblems, data, cut_data, algo)
         end
 
         # Log
@@ -361,14 +355,15 @@ function benders_sequential(master, subproblems, data, print_log, n_iteration_lo
 end
 
 
-function run_benders(options, data)
+function run_benders(options, data, algo)
     time_master_prob_creation = @elapsed benders_master = create_master_benders_problem(data)
     subproblems =  Vector{BendersSubroblem}(undef, data.S)
     for s in 1:data.S
         subproblems[s] = create_benders_subproblem(data, s)
     end
 
-    t_benders = @elapsed benders_sequential(benders_master, subproblems, data, true, 1, "multicut", false, undef, false)
+    t_benders = @elapsed benders_sequential(benders_master, subproblems, data, algo, undef; 
+        print_log=true, n_iteration_log=1)
 
     println()
     println("############################")
@@ -376,11 +371,21 @@ function run_benders(options, data)
     println("############################")
     print_solution(benders_master, data; null_tolerance=1e-6)
 
+    total_unsupplied = 0.0
+    for s in 1:data.S
+        total_unsupplied += data.probability[s] * counting_unsupplied_scenario(subproblems[s], 0.001, data)
+    end
+    println("Unsupplied method 1 = ", total_unsupplied)
+
+
     return t_benders
 end
 
 
 
+################################################################
+# Mean value problem
+################################################################
 
 
 #=function create_benders_subproblem_with_counting_unsupplied(data, s, epsilon_cnt)
@@ -541,26 +546,11 @@ function create_benders_subproblem_with_counting(data, s)
             ) for t in 1:data.T
         )
     )
-    #objective_subproblem(model, unsupplied, prod, flow_abs, data, which_scenario = s)
 
     return BendersSubroblem(model, invest_flow, invest_prod, flow, prod, unsupplied, spilled, cost_constraint, has_unsupplied)
 end
 
 
-
-
-
-function counting_unsupplied_subproblem(stoch_prob, epsilon, data)
-    return sum( value(stoch_prob.unsupplied[n,t]) > epsilon ? 1 : 0 for n in 1:data.network.N, t in 1:data.T )
-end
-"""
-function counting_unsupplied_scenario
-    brief: Computes the number of nodes which loss of load for a given scenario after optimization
-"""
-function counting_unsupplied_scenario(prob, epsilon, data)
-    #return sum( value(prob.unsupplied[n,t]) > epsilon ? 1 : 0 for n in 1:data.network.N, t in 1:data.T )
-    length( filter(x -> x > epsilon, value.(prob.unsupplied)) )
-end
 
 #########################################################################################
 # Benders resolution -- OOOOLLLLLLDDDD

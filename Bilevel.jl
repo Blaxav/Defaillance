@@ -19,7 +19,7 @@ function create_bilevel_invest_problem
     brief: Creates a stochastic bilevel investment optimization problem on a network
         It is possible to invest on every edge of the graph
 """
-function create_bilevel_invest_problem(data; unsupplied_tolerance=1e-6, max_unsupplied=3)
+function create_bilevel_invest_problem(data, algo; unsupplied_tolerance=1e-6, max_unsupplied=3, mode = BilevelJuMP.SOS1Mode())
 
     #model = BilevelModel(
     #    optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 3600), 
@@ -33,7 +33,7 @@ function create_bilevel_invest_problem(data; unsupplied_tolerance=1e-6, max_unsu
             () -> CPLEX.Optimizer(), 
             "CPXPARAM_Threads" => 1, 
             "CPXPARAM_TimeLimit" => 3600), 
-        mode = BilevelJuMP.SOS1Mode())
+        mode = algo.bilevel_mode)
         #mode = BilevelJuMP.IndicatorMode())
         #mode = BilevelJuMP.FortunyAmatMcCarlMode(primal_big_M = 8000, dual_big_M = 10000))
 

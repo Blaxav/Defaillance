@@ -152,3 +152,14 @@ end
 function production_nodes(data)
     ( n for n in 1:data.network.N if data.has_production[n] == 1 )
 end
+
+function edge_dict()
+    Dict(zip(data.network.edges,[0.0 for e in data.network.edges]))
+end
+
+function prod_dict()
+    Dict(zip(
+            [i for i in production_nodes(data)],
+            [0.0 for i in 1:sum(data.has_production)])
+        )
+end
