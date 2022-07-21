@@ -7,10 +7,6 @@
 =########################################################################################
 include("problemDataGenerator.jl")
 
-# Definition of global environment for Gurobi
-# Used as unique environment for every JuMP model
-#const GRB_ENV = Gurobi.Env()
-
 ############################################################################
 # Creating variables
 ############################################################################

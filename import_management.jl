@@ -22,11 +22,16 @@ try
     using Random
     using Plots
     using Printf
-    using JuMP#, Gurobi
-    using CPLEX
+    using JuMP
     using BilevelJuMP
+    using CPLEX
+    #using Gurobi
 catch
     println("ERROR : Some recquired packages not found.")
     println("        Run with option --install-packages to install them")
     exit()
 end
+
+# Definition of global environment for Gurobi
+# Used as unique environment for every JuMP model
+#const GRB_ENV = Gurobi.Env()

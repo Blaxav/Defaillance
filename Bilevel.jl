@@ -26,10 +26,16 @@ function create_bilevel_invest_problem(data; unsupplied_tolerance=1e-6, max_unsu
     #    mode = BilevelJuMP.SOS1Mode())
     #model = BilevelModel(CPLEX.Optimizer, mode = BilevelJuMP.SOS1Mode())
     #set_optimizer_attribute(model, "CPXPARAM_Threads", 1)
+    #set_optimizer_attribute(model, "CPXPARAM_MIP_Tolerances_UpperCutoff", 3.13669e+07)
 
     model = BilevelModel(
-        optimizer_with_attributes(() -> CPLEX.Optimizer(), "CPXPARAM_Threads" => 1, "CPXPARAM_TimeLimit" => 3600), 
+        optimizer_with_attributes(
+            () -> CPLEX.Optimizer(), 
+            "CPXPARAM_Threads" => 1, 
+            "CPXPARAM_TimeLimit" => 3600), 
         mode = BilevelJuMP.SOS1Mode())
+        #mode = BilevelJuMP.IndicatorMode())
+        #mode = BilevelJuMP.FortunyAmatMcCarlMode(primal_big_M = 8000, dual_big_M = 10000))
 
     # invest variables
     invest_flow = variables_investment_flow(Upper(model), data)
@@ -86,7 +92,7 @@ function create_bilevel_invest_problem(data; unsupplied_tolerance=1e-6, max_unsu
     @constraint(Upper(model), unsupplied_to_zero[s in 1:data.S, n in 1:data.network.N, t in 1:data.T],
         has_unsupplied[s,n,t] <= (1/unsupplied_tolerance)*unsupplied[s,n,t] )
     @constraint(Upper(model), unsupplied_to_one[s in 1:data.S, n in 1:data.network.N, t in 1:data.T],
-        2*data.scenario[s].demands[n,t]*has_unsupplied[s,n,t] >= unsupplied[s,n,t] - unsupplied_tolerance )
+        100*data.scenario[s].demands[n,t]*has_unsupplied[s,n,t] >= unsupplied[s,n,t] - unsupplied_tolerance )
     
     @constraint(Upper(model), unsupplied_cnt, sum(data.probability .* sum( sum(has_unsupplied[:,n,t] for n = 1:data.network.N) for t in 1:data.T )) <= max_unsupplied )
     

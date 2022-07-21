@@ -273,17 +273,53 @@ function benders_sequential(master, subproblems, data, print_log, n_iteration_lo
         compute_separation_point(candidate_flow, candidate_prod, 
             separation_flow, separation_prod, alpha, data)
 
+        
+        separation_prod[1] = 382.0
+        separation_prod[2] = 2200.50
+        separation_prod[4] = 308.50
+
+        for e in data.network.edges
+            separation_flow[e] = 0.0
+        end
+        separation_flow[Edge(2,5)] = 865.0
+        separation_flow[Edge(6,9)] = 299.0
+        separation_flow[Edge(2,10)] = 663.50
+        separation_flow[Edge(4,10)] = 71.50
+        separation_flow[Edge(8,9)] = 201.0
+        separation_flow[Edge(5,6)] = 612.0
+        separation_flow[Edge(3,10)] = 390.0
+        separation_flow[Edge(2,7)] = 396.0
+
         # 3. Fix investment candidates in subproblems
         fix_first_stage_candidate(subproblems, separation_flow, separation_prod, data)
     
         
         # 4. Solve Subproblems and get subprgradients
+        true_unsup = 0.0
+        SP_cnt =  Vector{BendersSubroblem}(undef, data.S)
+        for s in 1:data.S
+            SP_cnt[s] = create_benders_subproblem_with_counting(data, s)
+        end
+        fix_first_stage_candidate(SP_cnt, separation_flow, separation_prod, data)
+
         for s in 1:data.S
             solve(subproblems[s]; silent_mode=true)
+            cost = objective_value(subproblems[s].model)
+            println("Cost = ", cost, "  SP ", s)
+            
+            # Solving counting SPs
+            set_normalized_rhs(SP_cnt[s].cost_constraint, cost + 1e-6)
+            solve(SP_cnt[s]; silent_mode=false)
+            true_unsup += data.probability[s] * objective_value(SP_cnt[s].model)
         end
-
+        println("Min Unsupplied = ", true_unsup)
         local UB = compute_ub(subproblems, separation_flow, separation_prod, data; invest_free)
 
+
+        unsupplied_cnt = sum([ data.probability[s] * counting_unsupplied_scenario(subproblems[s], 0.001, data) for s in 1:data.S ])
+        println("Unsupplied = ", unsupplied_cnt)
+        println("Val = ", UB)
+        exit()
 
         # Check if investment solution is bilevel feasible
         if check_heuristic == true
@@ -434,6 +470,86 @@ end
     return BendersCountingSubroblem(model, invest_flow, invest_prod, flow, prod, unsupplied, spilled, cost_constraint, has_unsupplied)
 end
 =#
+
+function create_benders_subproblem_with_counting(data, s)
+    #model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
+    model = Model(CPLEX.Optimizer)
+    set_optimizer_attribute(model, "CPXPARAM_Threads", 1)
+
+    # invest variables
+    invest_flow = variables_investment_flow(model, data)
+    invest_prod = variables_investment_production(model, data)
+
+    # Flow variables
+    flow = variables_flow(model, data)
+    flow_abs = variables_absolute_value_flow(model, data)
+
+    # Production variables
+    prod = variables_production(model, data)
+    
+    # Production constraints
+    constraint_max_prod(model, prod, invest_prod, data)
+    
+    constraint_production_positive_gradient(model, invest_prod, prod, data)
+    constraint_production_negative_gradient(model, invest_prod, prod, data)
+    # Loss of load variables
+    unsupplied = variables_unsupplied_energy(model, data)
+    spilled = variables_spilled_energy(model, data)
+
+    # Flow bounds
+    constraint_flow_max(model, flow, invest_flow, data)
+
+    # Absolute value of flow in cost
+    constraint_absolute_flow_behavior(model, flow, flow_abs)
+
+    # Flow conservation
+    constraint_flow_conservation(model, prod, flow, unsupplied, spilled, data; which_scenario = s)
+
+
+    # Variable saying if a node has unsupplied energy
+    @variable(model, has_unsupplied[i in 1:data.network.N, t in 1:data.T], Bin)
+
+    # Binary Variables behaviour
+    epsilon_cnt = 1.0
+    @constraint(model, unsupplied_to_zero[n in 1:data.network.N, t in 1:data.T],
+        has_unsupplied[n,t] <= (1/epsilon_cnt)*unsupplied[n,t] )
+    @constraint(model, unsupplied_to_one[n in 1:data.network.N, t in 1:data.T],
+        100*data.scenario[s].demands[n,t]*has_unsupplied[n,t] >= unsupplied[n,t] - epsilon_cnt )
+
+    @constraint(model, cost_constraint, 
+        sum(
+            (
+            # unsupplied costs
+            sum( data.scenario[s].unsupplied_cost * unsupplied[n,t] 
+                for n in 1:data.network.N ) +
+            # production costs
+            sum( data.scenario[s].prod_cost[n][t] * prod[n,t] 
+                for n in production_nodes(data)) +
+            # flow cost
+            sum( data.scenario[s].flow_cost[e] * flow_abs[e,t] 
+                for e in data.network.edges )
+            ) for t in 1:data.T
+        )
+        <= 0
+    )
+
+    @objective(model, Min,
+        # Sum on time steps
+        sum(# Number of unsupplied nodes
+            ( 
+                sum(has_unsupplied[n,t] for n in 1:data.network.N )
+            ) for t in 1:data.T
+        )
+    )
+    #objective_subproblem(model, unsupplied, prod, flow_abs, data, which_scenario = s)
+
+    return BendersSubroblem(model, invest_flow, invest_prod, flow, prod, unsupplied, spilled, cost_constraint, has_unsupplied)
+end
+
+
+
+
+
 function counting_unsupplied_subproblem(stoch_prob, epsilon, data)
     return sum( value(stoch_prob.unsupplied[n,t]) > epsilon ? 1 : 0 for n in 1:data.network.N, t in 1:data.T )
 end
