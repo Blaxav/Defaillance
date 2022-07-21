@@ -30,7 +30,7 @@ struct BendersSubroblem
     has_unsupplied
 end
 
-mutable struct Solution
+mutable struct BendersSolution
     flow
     prod
     val
@@ -132,41 +132,106 @@ function create_master_benders_problem(data)
 end
 
 
+function create_mean_value_prob(data)
+    model = Model(CPLEX.Optimizer)
+    set_optimizer_attribute(model, "CPXPARAM_Threads", 1)
+
+    # invest variables
+    invest_flow = variables_investment_flow(model, data)
+    invest_prod = variables_investment_production(model, data)
+
+    # Flow variables
+    flow = variables_flow(model, data)
+    flow_abs = variables_absolute_value_flow(model, data)
+
+    # Production variables
+    prod = variables_production(model, data)
+    
+    # Production constraints
+    constraint_max_prod(model, prod, invest_prod, data)
+    
+    constraint_production_positive_gradient(model, invest_prod, prod, data)
+    constraint_production_negative_gradient(model, invest_prod, prod, data)
+    # Loss of load variables
+    unsupplied = variables_unsupplied_energy(model, data)
+    spilled = variables_spilled_energy(model, data)
+
+    # Flow bounds
+    constraint_flow_max(model, flow, invest_flow, data)
+
+    # Absolute value of flow in cost
+    constraint_absolute_flow_behavior(model, flow, flow_abs)
+    
+    #Flow conservation
+    constraint_flow_conservation_expextation(model, prod, flow, unsupplied, spilled, data)
+    
+    objective_mean_value_prob(model, invest_flow, invest_prod, 
+        unsupplied, prod, flow_abs, data)
+    
+    BendersSubroblem(model, invest_flow, invest_prod, flow, prod, unsupplied, spilled, undef, undef)
+end
+
+
 ################################################################
 # Benders algorithm functions
 ################################################################
-function compute_separation_point(candidate_flow, candidate_prod, 
-    separation_flow, separation_prod, alpha, data)
+function get_master_solution(bendersMaster, master_solution)
+    master_solution.flow = value.(bendersMaster.invest_flow)
+    master_solution.prod = value.(bendersMaster.invest_prod)
+end
+
+function compute_separation_point(best_sol, master_sol, separation_sol, algo, data)
 
     for e in data.network.edges
-        separation_flow[e] = alpha * candidate_flow[e] + (1-alpha) * best_invest_flow[e]
+        separation_sol.flow[e] = algo.step_size * master_sol.flow[e] + (1-algo.step_size) * best_sol.flow[e]
     end
-    for n in 1:data.network.N 
-        if data.scenario[1].has_production[n] == 1
-            separation_prod[n] = alpha * candidate_prod[n] + (1-alpha) * best_invest_prod[n]
-        end
+    for n in production_nodes(data)
+        separation_sol.prod[n] = algo.step_size * master_sol.prod[n] + (1-algo.step_size) * best_sol.prod[n]
     end
 end
 
-function compute_ub(subproblems, separation_flow, separation_prod, data; invest_free=false)
-    UB = 0
+
+function fix_first_stage_candidate(subproblems, separation_sol, data)
+    for s in 1:data.S
+        # Can not broadcast fix on edges as they are modeled by a dictionary
+        # Seems that broadcasting needs flat data
+        for e in data.network.edges
+            fix(subproblems[s].invest_flow[e], separation_sol.flow[e]; force=true)   
+        end
+        for n in production_nodes(data)
+            fix.(subproblems[s].invest_prod[n], separation_sol.prod[n]; force=true)
+        end
+        #fix.(subproblems[s].invest_prod, candidate_prod; force=true)
+    end
+end
+
+
+function investment_cost(solution, data)
+    sum( data.invest_flow_cost[e] * solution.flow[e] for e in data.network.edges) +
+    sum( data.invest_prod_cost[n] * solution.prod[n] for n in production_nodes(data))
+end
+
+
+function compute_ub(subproblems, separation_sol, data; invest_free=false)
+    separation_sol.val = 0.0
     if invest_free == false
-        UB += investment_cost(separation_flow, separation_prod, data)
+        separation_sol.val += investment_cost(separation_sol, data)
     end
     for s in 1:data.S
-        UB += data.probability[s] * get_objective_value(subproblems[s])
+        separation_sol.val += data.probability[s] * get_objective_value(subproblems[s])
     end
-    return UB
 end
 
-function update_best_solution(UB, best_UB, alpha, best_invest_flow, best_invest_prod)
-    if UB < best_UB
-        global alpha = min(1.0, 1.2*alpha)
-        global best_UB = UB
-        global best_invest_prod = separation_prod
-        global best_invest_flow = separation_flow
+function update_best_solution(best_sol, separation_sol, algo, LB)
+    if separation_sol.val < best_sol.val - algo.stab_center_tol * (best_sol.val - LB)
+        algo.step_size = min(1.0, 1.2*algo.step_size)
+
+        # Updating best solution
+        best_sol.val = separation_sol.val
+        best_sol.flow = separation_sol.flow
+        best_sol.prod = separation_sol.prod
     else
-        global alpha = max(0.1, 0.8*alpha)
+        algo.step_size = max(0.1, 0.8*algo.step_size)
     end
 end
 
@@ -196,14 +261,14 @@ function compute_multicut_gradient_and_rhs(cut_data, subproblems, data, s)
     cut_data.grad_prod = reduced_cost.(subproblems[s].invest_prod)
 end
 
-function add_cuts(master, subproblems, data, cut_data, algo)
+function add_cuts(master, subproblems, separation_sol, data, cut_data, algo)
     if algo.cut_aggregation == "monocut"
         compute_monocut_gradient_and_rhs(cut_data, subproblems, data)
     
         @constraint(master.model, master.theta_sum >= 
             cut_data.rhs +
-            sum( cut_data.grad_flow[e] * (master.invest_flow[e] - separation_flow[e]) for e in data.network.edges) +
-            sum( cut_data.grad_prod[n] * (master.invest_prod[n] - separation_prod[n]) for n in production_nodes(data))
+            sum( cut_data.grad_flow[e] * (master.invest_flow[e] - separation_sol.flow[e]) for e in data.network.edges) +
+            sum( cut_data.grad_prod[n] * (master.invest_prod[n] - separation_sol.prod[n]) for n in production_nodes(data))
         )
     elseif algo.cut_aggregation == "multicut"
         for s in 1:data.S   
@@ -211,8 +276,8 @@ function add_cuts(master, subproblems, data, cut_data, algo)
 
             @constraint(master.model, master.theta[s] >= 
             cut_data.rhs +
-                sum( cut_data.grad_flow[e] * (master.invest_flow[e] - separation_flow[e]) for e in data.network.edges) +
-                sum( cut_data.grad_prod[n] * (master.invest_prod[n] - separation_prod[n]) for n in production_nodes(data))
+                sum( cut_data.grad_flow[e] * (master.invest_flow[e] - separation_sol.flow[e]) for e in data.network.edges) +
+                sum( cut_data.grad_prod[n] * (master.invest_prod[n] - separation_sol.prod[n]) for n in production_nodes(data))
                 )
         end
     else
@@ -235,35 +300,16 @@ end
 ################################################################
 # Benders algorithm
 ################################################################
-function benders_sequential(master, subproblems, data, algo, heuristic_data; 
-    print_log=true, n_iteration_log=1, invest_free=false, check_heuristic=false)
+function benders_sequential(master, subproblems, data, algo, best_solution; 
+    print_log=true, log_freq=1, invest_free=false, check_heuristic=false)
 
-    
-    global best_UB = 1e20
-    LB = -1e6
-    global best_invest_flow = Dict(zip(
-        data.network.edges,
-        [0.0 for e in data.network.edges]
-        ))
-    global separation_flow = Dict(zip(
-            data.network.edges,
-            [0.0 for e in data.network.edges]
-            ))
-    global best_invest_prod = Dict(zip(
-        [i for i in 1:network.N if data.scenario[1].has_production[i] == 1],
-        [0.0 for i in 1:sum(data.scenario[1].has_production)]
-        ))
-    global separation_prod = Dict(zip(
-            [i for i in 1:network.N if data.scenario[1].has_production[i] == 1],
-            [0.0 for i in 1:sum(data.scenario[1].has_production)]
-            ))
-    global iteration = 0
-    global alpha = 0.1
+    separation_solution = BendersSolution(edge_dict(), prod_dict(), 0.0, 0.0)
+    master_solution = BendersSolution(edge_dict(), prod_dict(), 0.0, 0.0)
 
-    local cut_data = CutData(edge_dict(), prod_dict(), edge_dict(), prod_dict(), 0.0)
-
-    global log_freq = n_iteration_log
-    global stop = false
+    LB = 0.0
+    iteration = 0
+    cut_data = CutData(edge_dict(), prod_dict(), edge_dict(), prod_dict(), 0.0)
+    stop = false
 
     if print_log
         @printf("%-10s%-20s%-20s%-15s%15s\n", "ITER", "LB", "BEST UB", "GAP", "STEP SIZE")
@@ -277,66 +323,27 @@ function benders_sequential(master, subproblems, data, algo, heuristic_data;
         solve(master; silent_mode=true)
         
         # 2. Get master solution (investment candidates)
-        candidate_flow, candidate_prod = get_master_solution(master)
+        get_master_solution(master, master_solution)
         LB = get_objective_value(master)
 
-        compute_separation_point(candidate_flow, candidate_prod, 
-            separation_flow, separation_prod, alpha, data)
-
+        compute_separation_point(best_solution, master_solution, separation_solution, algo, data)
+        
         # 3. Fix investment candidates in subproblems
-        fix_first_stage_candidate(subproblems, separation_flow, separation_prod, data)
+        fix_first_stage_candidate(subproblems, separation_solution, data)
     
         
-        # 4. Solve Subproblems and get subprgradients
-        #true_unsup = 0.0
-        #SP_cnt =  Vector{BendersSubroblem}(undef, data.S)
-        #for s in 1:data.S
-        #    SP_cnt[s] = create_benders_subproblem_with_counting(data, s)
-        #end
-        #fix_first_stage_candidate(SP_cnt, separation_flow, separation_prod, data)
-
+        # 4. Solve Subproblems
         for s in 1:data.S
             solve(subproblems[s]; silent_mode=true)
-            
-            #cost = objective_value(subproblems[s].model)
-            #println("Cost = ", cost, "  SP ", s)
-            
-            # Solving counting SPs
-            #set_normalized_rhs(SP_cnt[s].cost_constraint, cost + 1e-6)
-            #solve(SP_cnt[s]; silent_mode=false)
-            #true_unsup += data.probability[s] * objective_value(SP_cnt[s].model)
         end
-        #println("Min Unsupplied = ", true_unsup)
-        local UB = compute_ub(subproblems, separation_flow, separation_prod, data; invest_free)
-
-
-        #unsupplied_cnt = sum([ data.probability[s] * counting_unsupplied_scenario(subproblems[s], 0.001, data) for s in 1:data.S ])
-        #println("Unsupplied = ", unsupplied_cnt)
-        #println("Val = ", UB)
-        #exit()
-
-        # Check if investment solution is bilevel feasible
-        #=if check_heuristic == true
-            unsupplied_cnt = sum([ data.probability[s] * counting_unsupplied_scenario(subproblems[s], heuristic_data.epsilon, data) for s in 1:data.S ])
-            if unsupplied_cnt <= heuristic_data.alpha
-                if investment_cost(separation_flow, separation_prod, data) < heuristic_data.UB_inv
-                    heuristic_data.UB_inv = investment_cost(separation_flow, separation_prod, data)
-                end
-                if UB < heuristic_data.best_solution_cost
-                    heuristic_data.best_solution_cost = UB
-                    heuristic_data.best_flow_inv = separation_flow
-                    heuristic_data.best_prod_inv = separation_prod
-                end
-            end
-        end=#
-
+        compute_ub(subproblems, separation_solution, data; invest_free)
 
         # Update UB
-        update_best_solution(UB, best_UB, alpha, best_invest_flow, best_invest_prod)
+        update_best_solution(best_solution, separation_solution, algo, LB)
         
         # Stopping criterion
-        if best_UB - LB <= 1e-6*best_UB
-            global stop = true
+        if best_solution.val - LB <= 1e-6*best_solution.val
+            stop = true
         end
 
         # Get subgradients and build cut
@@ -344,16 +351,38 @@ function benders_sequential(master, subproblems, data, algo, heuristic_data;
         # as adding cuts erase all information about any optimal solution got
         # by solving the master problem
         if stop == false
-            add_cuts(master, subproblems, data, cut_data, algo)
+            add_cuts(master, subproblems, separation_solution, data, cut_data, algo)
         end
 
         # Log
         if print_log && ( stop == true || iteration % log_freq == 0 )
-            @printf("%-10i%-20.6e%-20.6e%-15.3e%15.3f\n", iteration, LB, best_UB, (best_UB-LB)/best_UB, alpha)
+            @printf("%-10i%-20.6e%-20.6e%-15.3e%15.3f\n", iteration, LB, best_solution.val, (best_solution.val-LB)/best_solution.val, algo.step_size)
         end
     end
 end
 
+
+function initialize_mean_value_solution(master, subproblems, best_solution, data)
+    
+    # 1. Define and solve mean_value_problem
+    mean_value_prob = create_mean_value_prob(data)
+    solve(mean_value_prob; silent_mode=true) 
+
+    # 2. Set solution to initialize best_sol
+    get_master_solution(mean_value_prob, best_solution)
+    
+    # Fix value in SPs and solve
+    fix_first_stage_candidate(subproblems, best_solution, data)
+    for s in 1:data.S
+        solve(subproblems[s]; silent_mode=true)
+    end
+    # Set true value of best_sol
+    compute_ub(subproblems, best_solution, data)
+
+    # Add the cuts to initialize master problem
+    cut_data = CutData(edge_dict(), prod_dict(), edge_dict(), prod_dict(), 0.0)
+    add_cuts(master, subproblems, best_solution, data, cut_data, algo)
+end
 
 function run_benders(options, data, algo)
     time_master_prob_creation = @elapsed benders_master = create_master_benders_problem(data)
@@ -362,8 +391,15 @@ function run_benders(options, data, algo)
         subproblems[s] = create_benders_subproblem(data, s)
     end
 
-    t_benders = @elapsed benders_sequential(benders_master, subproblems, data, algo, undef; 
-        print_log=true, n_iteration_log=1)
+    t_benders = 0.0
+
+    best_solution = BendersSolution(edge_dict(), prod_dict(), 1e20, 0.0)
+    if algo.init_mean_value_solution
+        t_benders += @elapsed initialize_mean_value_solution(benders_master, subproblems, best_solution, data)
+    end
+
+    t_benders += @elapsed benders_sequential(benders_master, subproblems, data, algo, best_solution; 
+        print_log=true, log_freq=1)
 
     println()
     println("############################")
@@ -375,8 +411,8 @@ function run_benders(options, data, algo)
     for s in 1:data.S
         total_unsupplied += data.probability[s] * counting_unsupplied_scenario(subproblems[s], 0.001, data)
     end
-    println("Unsupplied method 1 = ", total_unsupplied)
-
+    println()
+    println("Total unsupplied = ", total_unsupplied)
 
     return t_benders
 end
@@ -476,6 +512,32 @@ end
 end
 =#
 
+
+
+###################################
+# Ce bout de code etait dans Benders pour le check de l'heuristique a chaque iteration
+###################################
+#unsupplied_cnt = sum([ data.probability[s] * counting_unsupplied_scenario(subproblems[s], 0.001, data) for s in 1:data.S ])
+        #println("Unsupplied = ", unsupplied_cnt)
+        #println("Val = ", UB)
+        #exit()
+
+        # Check if investment solution is bilevel feasible
+        #=if check_heuristic == true
+            unsupplied_cnt = sum([ data.probability[s] * counting_unsupplied_scenario(subproblems[s], heuristic_data.epsilon, data) for s in 1:data.S ])
+            if unsupplied_cnt <= heuristic_data.alpha
+                if investment_cost(separation_flow, separation_prod, data) < heuristic_data.UB_inv
+                    heuristic_data.UB_inv = investment_cost(separation_flow, separation_prod, data)
+                end
+                if UB < heuristic_data.best_solution_cost
+                    heuristic_data.best_solution_cost = UB
+                    heuristic_data.best_flow_inv = separation_flow
+                    heuristic_data.best_prod_inv = separation_prod
+                end
+            end
+        end=#
+
+
 function create_benders_subproblem_with_counting(data, s)
     #model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
     model = Model(CPLEX.Optimizer)
@@ -559,40 +621,18 @@ function get_master_value(bendersMaster::BendersMasterProblem)
     return objective_value(bendersMaster.model)
 end
 
-function get_master_solution(bendersMaster::BendersMasterProblem)
-    candidate_flow = value.(bendersMaster.invest_flow)
-    candidate_prod = value.(bendersMaster.invest_prod)
-    return candidate_flow, candidate_prod
-end
 
-function fix_first_stage_candidate(subproblems, candidate_flow, candidate_prod, data)
-    for s in 1:data.S
-        # Can not broadcast fix on edges as they are modeled by a dictionary
-        # Seems that broadcasting needs flat data
-        for e in data.network.edges
-            fix(subproblems[s].invest_flow[e], candidate_flow[e]; force=true)   
-        end
-        for n in 1:network.N 
-            if data.scenario[1].has_production[n] == 1
-                fix.(subproblems[s].invest_prod[n], candidate_prod[n]; force=true)
-            end
-        end
-        #fix.(subproblems[s].invest_prod, candidate_prod; force=true)
-    end
-end
 
-function investment_cost(invest_flow, invest_prod, data)
-    sum( data.invest_flow_cost[e] * invest_flow[e] for e in data.network.edges) +
-    sum( data.invest_prod_cost[n] * invest_prod[n] for n in 1:data.network.N 
-            if data.has_production[n] == 1)
-end
+
+
+
 
 
 function master_solution_investment_cost(master, data)
     solution_invest_prod = value.(master.invest_prod)
     solution_invest_flow = value.(master.invest_flow)
 
-    investment_cost(solution_invest_flow, solution_invest_prod, data)
+    #investment_cost(solution_invest_flow, solution_invest_prod, data)
 end
 
 

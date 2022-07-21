@@ -59,6 +59,7 @@ struct StochasticProblemData
     invest_prod_cost::Dict{Int, Float64}
     flow_init::Dict{Edge, Int}
     grad_prod::Float64
+    max_demand::Float64
 end
 
 
@@ -136,7 +137,7 @@ function investment_problem_data_generator(scenarios, network, time_steps, deman
 
     
     return StochasticProblemData(scenarios, data_flow, proba, network, has_production, time_steps, 
-        invest_flow_cost, invest_prod_cost, flow_init, grad_prod)
+        invest_flow_cost, invest_prod_cost, flow_init, grad_prod, maximum(demand_range))
 end
 
 

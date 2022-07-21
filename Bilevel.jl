@@ -169,11 +169,3 @@ function solve(bilev_prob; silent_mode=false)
     return timer
 end
 
-"""
-function investment_cost
-    brief: computes the investment cost of the inner solution of stoch_prob
-"""
-function investment_cost(bilev_prob, data)
-    sum( data.invest_flow_cost[e] * value(bilev_prob.invest_flow[e]) for e in data.network.edges)
-end
-

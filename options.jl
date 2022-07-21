@@ -15,10 +15,17 @@ mutable struct GlobalOptions
     invest_flow_range
     invest_prod_range
     flow_init_max
+
     algorithm
+
     cut_aggregation
+    step_size
+    stab_center_tol
+    init_mean_value_solution
+
     check_frequency
     check_strategy
+
     bilevel_mode
     primal_big_M
     dual_big_M
@@ -29,7 +36,8 @@ function define_default_options()
         1, 100, 0, 1, 1, 
         1:1, 1:1, 1000, 1:1,
         1.0, 1:1, 1:1, 0.0, "stochastic", 
-        "false", "Opt", "Rand","SOS1",
+        "monocut", 0.5, 0.3, 1,
+        "Opt", "Rand","SOS1",
         1e3, 1e3
     )
 end
@@ -55,6 +63,8 @@ function parse_option_line(options, line)
     else
         keyword = rstrip(split(line, "=")[1])
         value = lstrip(rstrip(split(line, "=")[2]))
+        
+        # Instance options
         if keyword == "N"
             options.N = parse(Int64, value)
         elseif keyword == "graph_density"
@@ -91,16 +101,28 @@ function parse_option_line(options, line)
             options.invest_prod_range = min_val:max_val
         elseif keyword == "flow_init_max"
             options.flow_init_max = parse(Float64, value)
+        
+        
+        # Algorithm options
         elseif keyword == "algorithm"
             options.algorithm = value
-        elseif keyword == "bilevel_mode"
-            options.bilevel_mode = value
+        
         elseif keyword == "cut_aggregation"
             options.cut_aggregation = value
+        elseif keyword == "step_size"
+            options.step_size = parse(Float64, value)
+        elseif keyword == "stab_center_tol"
+            options.stab_center_tol = parse(Float64, value)
+        elseif keyword == "init_mean_value_solution"
+            options.init_mean_value_solution = parse(Bool, value)
+
         elseif keyword == "check_frequency"
             options.check_frequency = value
         elseif keyword == "check_strategy"
             options.check_strategy = value
+
+        elseif keyword == "bilevel_mode"
+            options.bilevel_mode = value
         elseif keyword == "primal_big_M"
             options.primal_big_M = parse(Float64, value)
         elseif keyword == "dual_big_M"
@@ -136,6 +158,7 @@ mutable struct Algorithm
     step_size # Step size in in-out stabilization
     stab_center_tol # Tolerance to accept a new better solution in (0, 1.0)
                     # computed as UB - tol*Gap
+    init_mean_value_solution
     
     # Heuristic Parameters
     frequency_check # All or Opt (check all invest solution or only optimal solution of Benders)
@@ -144,11 +167,15 @@ end
 
 function create_algo(options)
     if options.algorithm == "benders"
-        return create_benders(options.cut_aggregation, step_size, stab_center_tol)
+        return create_benders(options.cut_aggregation, options.step_size, 
+            options.stab_center_tol, options.init_mean_value_solution)
     elseif options.algorithm == "bilevel"
-        return create_bilevel(options.bilevel_mode; primal_ub=options.primal_big_M, dual_ub=options.dual_big_M)
+        return create_bilevel(options.bilevel_mode; 
+            primal_ub=options.primal_big_M, dual_ub=options.dual_big_M)
     elseif options.algorithm == "heuristic"
-        return create_heuristic(options.cut_aggregation, options.check_frequency, options.check_strategy)
+        return create_heuristic(options.cut_aggregation, options.step_size, 
+            options.stab_center_tol, options.check_frequency, 
+            options.check_strategy, options.init_mean_value_solution)
     else
         println("Unknown algorithm ", options.algorithm)
         exit()
@@ -157,22 +184,31 @@ end
 
 function create_bilevel(mode; primal_ub=1e3, dual_ub=1e3)
     if mode == "SOS1"
-        return Algorithm("bilevel", BilevelJuMP.SOS1Mode(), any, any, any, any, any)
+        return Algorithm("bilevel", BilevelJuMP.SOS1Mode(), 
+            any, any, any, any, any, any)
     elseif mode == "Indicators"
-        return Algorithm("bilevel", BilevelJuMP.IndicatorMode(), any, any, any, any, any)
+        return Algorithm("bilevel", BilevelJuMP.IndicatorMode(), 
+            any, any, any, any, any, any)
     elseif mode == "Big-M"
         return Algorithm("bilevel", BilevelJuMP.FortunyAmatMcCarlMode(
-            primal_big_M = primal_ub, dual_big_M=dual_ub), any, any, any, any, any)
+            primal_big_M = primal_ub, dual_big_M=dual_ub), 
+            any, any, any, any, any, any)
     else
         println("Unknown bilevel mode ", mode)
         exit()
     end
 end
 
-function create_benders(cut_aggregation, step_size, stab_center_tol)
-    return Algorithm("benders", any, cut_aggregation, step_size, stab_center_tol, any, any)
+function create_benders(cut_aggregation, step_size, stab_center_tol, 
+    init_mean_value_solution)
+    
+    return Algorithm("benders", any, cut_aggregation, step_size, 
+        stab_center_tol, init_mean_value_solution, any, any)
 end
 
-function create_heuristic(cut_aggregation, step_size, stab_center_tol, frequency, strategy)
-    return Algorithm("heuristic", any, cut_aggregation, step_size, stab_center_tol, frequency, strategy)
+function create_heuristic(cut_aggregation, step_size, stab_center_tol, 
+    init_mean_value_solution, frequency, strategy)
+    
+    return Algorithm("heuristic", any, cut_aggregation, step_size,
+        stab_center_tol, init_mean_value_solution, frequency, strategy)
 end

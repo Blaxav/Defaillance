@@ -10,13 +10,12 @@ include("problemDataGenerator.jl")
 ############################################################################
 # Creating variables
 ############################################################################
-function variables_investment_flow(model, dataif, n_scenarios = 1)
+function variables_investment_flow(model, data, n_scenarios = 1)
     @variable(model, 0 <= invest_flow[e in data.network.edges])
 end
 
 function variables_investment_production(model, data)
-    @variable(model, 0 <= invest_prod[n in 1:data.network.N; 
-        data.has_production[n] == 1])
+    @variable(model, 0 <= invest_prod[n in production_nodes(data)])
 end
 
 function variables_flow(model, data)
@@ -110,6 +109,26 @@ function constraint_flow_conservation(model, prod, flow, unsupplied, spilled, da
     end
 end
 
+function constraint_flow_conservation_expextation(
+    model, prod, flow, unsupplied, spilled, data)
+
+    expected_demand = zeros(Float64, data.network.N, data.T)
+    for n in 1:data.network.N
+        for t in 1:data.T
+            for s in 1:data.S
+                expected_demand[n,t] += data.probability[s] * data.scenario[s].demands[n,t]
+            end
+        end
+    end
+    
+    @constraint(model, flow_conservation[n in 1:data.network.N, t in 1:data.T], 
+        sum(flow[e,t] for e in data.network.edges if e.to == n) - 
+        sum(flow[e,t] for e in data.network.edges if e.from == n) + 
+        (data.has_production[n] == 1 ? prod[n,t] : 0) + 
+        unsupplied[n,t] - spilled[n,t] == expected_demand[n,t]
+        )
+end
+
 
 function constraint_minimum_investment(model, invest_flow, invest_prod, data)
     @constraint(model, invest_cost,
@@ -152,6 +171,44 @@ function objective_master_problem(model, invest_flow, invest_prod, theta_sum, da
         sum( data.invest_prod_cost[n] * invest_prod[n] for n in 1:data.network.N 
             if data.has_production[n] == 1) +
         theta_sum
+    )
+end
+
+function objective_mean_value_prob(model, invest_flow, invest_prod, 
+    unsupplied, prod, flow_abs, data)
+
+    expected_flow_cost = edge_dict()
+    for e in data.network.edges
+        for s in 1:data.S
+            expected_flow_cost[e] += data.probability[s] * data.scenario[s].flow_cost[e]
+        end
+    end
+
+    expected_prod_cost = zeros(Float64, data.network.N, data.T)
+    for n in production_nodes(data)
+        for t in 1:data.T
+            for s in 1:data.S
+                expected_prod_cost[n,t] += data.probability[s] * data.scenario[s].prod_cost[n][t]
+            end
+        end
+    end
+
+    @objective(model, Min,
+        sum( data.invest_flow_cost[e] * invest_flow[e] for e in data.network.edges ) +
+        sum( data.invest_prod_cost[n] * invest_prod[n] for n in 1:data.network.N 
+            if data.has_production[n] == 1) +
+        # Sum on time steps
+        sum(
+            (
+                # unsupplied costs
+                sum( data.scenario[1].unsupplied_cost * unsupplied[n,t] 
+                    for n in 1:data.network.N ) +
+                # production costs
+                sum( expected_prod_cost[n,t] * prod[n,t] for n in production_nodes(data)) +
+                # flow cost
+                sum( expected_flow_cost[e] * flow_abs[e,t] for e in data.network.edges )
+            ) 
+        for t in 1:data.T )
     )
 end
 
