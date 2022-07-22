@@ -1,4 +1,4 @@
-include("Benders.jl")
+include("Heuristic.jl") # includes "Benders.jl"
 include("Bilevel.jl")
 
 #if "--compile" in ARGS
@@ -27,7 +27,9 @@ println()
 
 if options.algorithm == "bilevel"
 
-    t_creation = @elapsed bilev = create_bilevel_invest_problem(data, algo; unsupplied_tolerance=1e-3, max_unsupplied=3)
+    t_creation = @elapsed bilev = create_bilevel_invest_problem(data, algo; 
+        unsupplied_tolerance = options.unsupplied_tolerance, 
+        max_unsupplied = options.max_unsupplied)
     
     #=fix(bilev.invest_prod[1], 382.0; force=true)
     fix(bilev.invest_prod[2], 2237.498; force=true)
@@ -72,6 +74,7 @@ if options.algorithm == "bilevel"
 
 elseif options.algorithm == "stochastic"
 elseif options.algorithm == "benders"
+    
     total_time = @elapsed t_benders = run_benders(options, data, algo)
     println()
     println("Solution time = ", t_benders)
@@ -79,6 +82,12 @@ elseif options.algorithm == "benders"
 
     
 elseif options.algorithm == "heuristic"
+    
+    total_time = @elapsed t_benders = run_heuristic(options, data, algo)
+    println()
+    println("Solution time = ", t_benders)
+    println("Total time = ", total_time)
+
 else
     println("Unknown algortihm ", options.algorithm)
 end

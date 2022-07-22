@@ -12,28 +12,33 @@ graph_density = 10
 ####################################
 # Problem datas
 ####################################
-scenarios           = 100
-time_steps          = 100
+scenarios           = 10
+time_steps          = 10
+
 demand_range        = 50:400
 prod_cost_range     = 20:80
-unsupplied_cost     = 3000
+unsupplied_cost     = 1500
 flow_cost_range     = 1:1
 grad_prod           = 0.3
 invest_flow_range   = 1000:8000
 invest_prod_range   = 1000:8000
-flow_init_max       = 0.0
+flow_init_max       = 100
+
+unsupplied_tolerance        = 1e-3
+max_unsupplied              = 3
 
 ####################################
 # Algorithm
 ####################################
-algorithm                   = benders
+algorithm                   = heuristic
 cut_aggregation             = multicut
 step_size                   = 0.5
 stab_center_tol             = 0.1
-init_mean_value_solution    = 1
+init_mean_value_solution    = 0
 
-check_frequency             = Opt
-check_strategy              = Rand
-bilevel_mode                = Big-M
+heuristic_frequency         = All
+heuristic_strategy          = Min
+bilevel_mode                = SOS1
 primal_big_M                = 3000
 dual_big_M                  = 5500
+

@@ -37,17 +37,6 @@ mutable struct BendersSolution
     unsupplied
 end
 
-mutable struct HeuristicData
-    invest_rhs::Float64
-    UB_inv::Float64
-    LB_inv::Float64
-    epsilon::Float64
-    alpha::Float64
-    best_solution_cost::Float64
-    best_flow_inv
-    best_prod_inv
-end
-
 
 mutable struct CutData
     separation_flow
@@ -230,6 +219,7 @@ function update_best_solution(best_sol, separation_sol, algo, LB)
         best_sol.val = separation_sol.val
         best_sol.flow = separation_sol.flow
         best_sol.prod = separation_sol.prod
+        best_sol.unsupplied = separation_sol.unsupplied
     else
         algo.step_size = max(0.1, 0.8*algo.step_size)
     end
@@ -296,6 +286,13 @@ function counting_unsupplied_scenario(prob, epsilon, data)
 end
 
 
+function counting_unsupplied_total(subproblems, tolerance, data)
+    total_unsupplied = 0.0
+    for s in 1:data.S
+        total_unsupplied += data.probability[s] * counting_unsupplied_scenario(subproblems[s], tolerance, data)
+    end
+    return total_unsupplied
+end
 
 ################################################################
 # Benders algorithm
@@ -326,8 +323,12 @@ function benders_sequential(master, subproblems, data, algo, best_solution;
         get_master_solution(master, master_solution)
         LB = get_objective_value(master)
 
-        compute_separation_point(best_solution, master_solution, separation_solution, algo, data)
-        
+        if iteration == 1
+            # Always cut master solution at iteration 1 if 0.0 is not feasible
+            compute_separation_point(master_solution, master_solution, separation_solution, algo, data)
+        else 
+            compute_separation_point(best_solution, master_solution, separation_solution, algo, data)
+        end
         # 3. Fix investment candidates in subproblems
         fix_first_stage_candidate(subproblems, separation_solution, data)
     
@@ -538,7 +539,7 @@ end
         end=#
 
 
-function create_benders_subproblem_with_counting(data, s)
+function create_benders_subproblem_with_counting(data, s, tolerance)
     #model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
     model = Model(CPLEX.Optimizer)
     set_optimizer_attribute(model, "CPXPARAM_Threads", 1)
@@ -577,11 +578,10 @@ function create_benders_subproblem_with_counting(data, s)
     @variable(model, has_unsupplied[i in 1:data.network.N, t in 1:data.T], Bin)
 
     # Binary Variables behaviour
-    epsilon_cnt = 1.0
     @constraint(model, unsupplied_to_zero[n in 1:data.network.N, t in 1:data.T],
-        has_unsupplied[n,t] <= (1/epsilon_cnt)*unsupplied[n,t] )
+        has_unsupplied[n,t] <= (1/tolerance)*unsupplied[n,t] )
     @constraint(model, unsupplied_to_one[n in 1:data.network.N, t in 1:data.T],
-        100*data.scenario[s].demands[n,t]*has_unsupplied[n,t] >= unsupplied[n,t] - epsilon_cnt )
+        100*data.scenario[s].demands[n,t]*has_unsupplied[n,t] >= unsupplied[n,t] - tolerance )
 
     @constraint(model, cost_constraint, 
         sum(

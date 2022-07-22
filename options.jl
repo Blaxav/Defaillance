@@ -16,6 +16,9 @@ mutable struct GlobalOptions
     invest_prod_range
     flow_init_max
 
+    unsupplied_tolerance
+    max_unsupplied
+
     algorithm
 
     cut_aggregation
@@ -23,8 +26,8 @@ mutable struct GlobalOptions
     stab_center_tol
     init_mean_value_solution
 
-    check_frequency
-    check_strategy
+    heuristic_frequency
+    heuristic_strategy
 
     bilevel_mode
     primal_big_M
@@ -35,7 +38,8 @@ function define_default_options()
     GlobalOptions(
         1, 100, 0, 1, 1, 
         1:1, 1:1, 1000, 1:1,
-        1.0, 1:1, 1:1, 0.0, "stochastic", 
+        1.0, 1:1, 1:1, 0.0, 
+        1e-3, 3, "benders", 
         "monocut", 0.5, 0.3, 1,
         "Opt", "Rand","SOS1",
         1e3, 1e3
@@ -75,6 +79,7 @@ function parse_option_line(options, line)
             options.scenarios = parse(Int64, value)
         elseif keyword == "time_steps"
             options.time_steps = parse(Int64, value)
+
         elseif keyword == "demand_range"
             min_val = parse(Int64, split(value, ":")[1])
             max_val = parse(Int64, split(value, ":")[2])
@@ -102,7 +107,11 @@ function parse_option_line(options, line)
         elseif keyword == "flow_init_max"
             options.flow_init_max = parse(Float64, value)
         
-        
+        elseif keyword == "unsupplied_tolerance"
+            options.unsupplied_tolerance = parse(Float64, value)
+        elseif keyword == "max_unsupplied"
+            options.max_unsupplied = parse(Float64, value)
+
         # Algorithm options
         elseif keyword == "algorithm"
             options.algorithm = value
@@ -116,10 +125,10 @@ function parse_option_line(options, line)
         elseif keyword == "init_mean_value_solution"
             options.init_mean_value_solution = parse(Bool, value)
 
-        elseif keyword == "check_frequency"
-            options.check_frequency = value
-        elseif keyword == "check_strategy"
-            options.check_strategy = value
+        elseif keyword == "heuristic_frequency"
+            options.heuristic_frequency = value
+        elseif keyword == "heuristic_strategy"
+            options.heuristic_strategy = value
 
         elseif keyword == "bilevel_mode"
             options.bilevel_mode = value
@@ -161,8 +170,8 @@ mutable struct Algorithm
     init_mean_value_solution
     
     # Heuristic Parameters
-    frequency_check # All or Opt (check all invest solution or only optimal solution of Benders)
-    check_strategy # Rand or Min, Rand: Solution given by solver, Min: best solution with auxiliary prob solving
+    heuristic_frequency # All or Opt (check all invest solution or only optimal solution of Benders)
+    heuristic_strategy # Rand or Min, Rand: Solution given by solver, Min: best solution with auxiliary prob solving
 end
 
 function create_algo(options)
@@ -174,8 +183,8 @@ function create_algo(options)
             primal_ub=options.primal_big_M, dual_ub=options.dual_big_M)
     elseif options.algorithm == "heuristic"
         return create_heuristic(options.cut_aggregation, options.step_size, 
-            options.stab_center_tol, options.check_frequency, 
-            options.check_strategy, options.init_mean_value_solution)
+            options.stab_center_tol, options.init_mean_value_solution, 
+            options.heuristic_frequency, options.heuristic_strategy)
     else
         println("Unknown algorithm ", options.algorithm)
         exit()

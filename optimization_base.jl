@@ -212,7 +212,7 @@ function objective_mean_value_prob(model, invest_flow, invest_prod,
     )
 end
 
-function set_invest_free_master_problem(master, data, perturbation)
+function set_invest_free_master_problem(master, data; perturbation=1e-3)
     @objective(master.model, Min,
         sum( perturbation * master.invest_flow[e] for e in data.network.edges ) +
         sum( perturbation * master.invest_prod[n] for n in 1:data.network.N 
