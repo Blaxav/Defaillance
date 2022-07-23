@@ -12,8 +12,8 @@ graph_density = 10
 ####################################
 # Problem datas
 ####################################
-scenarios           = 10
-time_steps          = 10
+scenarios           = 20
+time_steps          = 24
 
 demand_range        = 50:400
 prod_cost_range     = 20:80
@@ -37,7 +37,7 @@ stab_center_tol             = 0.1
 init_mean_value_solution    = 0
 
 heuristic_frequency         = All
-heuristic_strategy          = Min
+heuristic_strategy          = Rand
 bilevel_mode                = SOS1
 primal_big_M                = 3000
 dual_big_M                  = 5500

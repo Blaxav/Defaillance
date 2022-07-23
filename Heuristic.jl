@@ -7,6 +7,7 @@ mutable struct HeuristicData
     tolerance::Float64
     max_unsupplied::Float64
     best_sol::BendersSolution
+    found_solution_ite::Bool
 end
 
 
@@ -41,6 +42,51 @@ function feasibility_check(master, subproblems, heuristic_data, options, data)
     return t_feasibility
 end
 
+
+
+function counting_unsupplied__solution(h_data, separation_solution, subproblems, counting_SP, algo, options, data)
+    if algo.heuristic_strategy == "Min" && 
+        counting_unsupplied_total(subproblems, options.unsupplied_tolerance, data) > options.max_unsupplied
+        # Solve auxiliary SP
+        separation_solution.unsupplied = 0.0
+        fix_first_stage_candidate(counting_SP, separation_solution, data)
+        for s in 1:data.S
+            opt_val = get_objective_value(subproblems[s])
+            set_normalized_rhs(counting_SP[s].cost_constraint, opt_val + 1e-3)
+
+            solve(counting_SP[s]; silent_mode=true)
+            separation_solution.unsupplied += data.probability[s] * get_objective_value(counting_SP[s])
+
+            if separation_solution.unsupplied > options.max_unsupplied
+                break
+            end
+        end
+    else
+        separation_solution.unsupplied = counting_unsupplied_total(subproblems, options.unsupplied_tolerance, data)
+    end            
+    
+    #=if separation_solution.unsupplied <= options.max_unsupplied
+        h_data.found_solution_ite = true
+        if separation_solution.val < h_data.best_sol.val
+            h_data.best_sol.val = separation_solution.val
+        end
+        if investment_cost(separation_solution, data) < h_data.UB_inv
+            h_data.UB_inv = investment_cost(separation_solution, data)
+        end
+    end=#
+end
+
+function update_h_data_best_sol(solution, options, h_data, data)
+    if solution.unsupplied <= options.max_unsupplied
+        h_data.found_solution_ite = true
+        if solution.val < h_data.best_sol.val
+            h_data.best_sol.val = solution.val
+        end
+        if investment_cost(solution, data) < h_data.UB_inv
+            h_data.UB_inv = investment_cost(solution, data)
+        end
+    end
+end
 
 
 function counting_benders(master, subproblems, counting_SP,
@@ -88,9 +134,9 @@ function counting_benders(master, subproblems, counting_SP,
         compute_ub(subproblems, separation_solution, data; invest_free)
 
         # Compute value and unsupplied number
-        if algo.heuristic_frequency == "All"
-
-            if algo.heuristic_strategy == "Min" && 
+        if algo.heuristic_frequency == "All" && separation_solution.val < h_data.best_sol.val
+            counting_unsupplied__solution(h_data, separation_solution, subproblems, counting_SP, algo, options, data)
+            #=if algo.heuristic_strategy == "Min" && 
                 counting_unsupplied_total(subproblems, options.unsupplied_tolerance, data) > options.max_unsupplied
                 # Solve auxiliary SP
                 separation_solution.unsupplied = 0.0
@@ -108,9 +154,13 @@ function counting_benders(master, subproblems, counting_SP,
                 end
             else
                 separation_solution.unsupplied = counting_unsupplied_total(subproblems, options.unsupplied_tolerance, data)
-            end            
+            end =#    
             
-            if separation_solution.unsupplied <= max_unsupplied
+            
+            update_h_data_best_sol(separation_solution, options, h_data, data)
+            
+            #=if separation_solution.unsupplied <= max_unsupplied
+                h_data.found_solution_ite = true
                 if separation_solution.val < h_data.best_sol.val
                     h_data.best_sol.val = separation_solution.val
                     #println("Best found = ", separation_solution.val)
@@ -118,7 +168,7 @@ function counting_benders(master, subproblems, counting_SP,
                 if investment_cost(separation_solution, data) < h_data.UB_inv
                     h_data.UB_inv = investment_cost(separation_solution, data)
                 end
-            end
+            end=#
         end
 
         # Update UB
@@ -159,7 +209,7 @@ function run_heuristic(options, data, algo)
     # Instanciate heuristic data
     h_data = HeuristicData(
         0.0, 1e20, 0.0, options.unsupplied_tolerance, options.max_unsupplied,
-        BendersSolution(edge_dict(), prod_dict(), 1e20, 0.0)
+        BendersSolution(edge_dict(), prod_dict(), 1e20, 0.0), false
     )
 
     # Feasibility check
@@ -173,6 +223,7 @@ function run_heuristic(options, data, algo)
     while (h_data.UB_inv - h_data.LB_inv)/h_data.UB_inv > 1e-6
 
         iteration += 1
+        h_data.found_solution_ite = false
 
         # Solve
         benders_best_solution = BendersSolution(edge_dict(), prod_dict(), 1e20, 0.0)
@@ -185,7 +236,12 @@ function run_heuristic(options, data, algo)
         benders_val = benders_best_solution.val
 
         # Count and update data
-        t_counting = @elapsed total_unsupplied = counting_unsupplied_total(subproblems, options.unsupplied_tolerance, data)
+        t_counting = 0.0
+        if algo.heuristic_frequency == "All"
+            total_unsupplied = benders_best_solution.unsupplied
+        else
+            t_counting += @elapsed total_unsupplied = counting_unsupplied_total(subproblems, options.unsupplied_tolerance, data)
+        end
 
         if total_unsupplied <= options.max_unsupplied
             # Feasible solution
@@ -196,7 +252,7 @@ function run_heuristic(options, data, algo)
             if benders_best_solution.val < h_data.best_sol.val
                 h_data.best_sol.val = benders_best_solution.val
             end
-        else
+        elseif h_data.found_solution_ite == false
             h_data.LB_inv = max(invest_cost, h_data.LB_inv)
         end
 
@@ -210,7 +266,12 @@ function run_heuristic(options, data, algo)
         # Update investment constraint
         h_level = 0.1
         h_data.invest_rhs = h_level * h_data.UB_inv + (1-h_level) * h_data.LB_inv
+        if h_data.UB_inv / h_data.LB_inv > 100
+            h_data.invest_rhs = 10*h_data.LB_inv
+        end
         set_normalized_rhs(master.heuristic_constraint, h_data.invest_rhs)
+
+        
     end
 
 
