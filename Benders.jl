@@ -415,7 +415,7 @@ function run_benders(options, data, algo)
     println("############################")
     println("Solution")
     println("############################")
-    print_solution(benders_master, data; null_tolerance=1e-6)
+    print_solution(best_solution, data; null_tolerance=1e-6)
 
     total_unsupplied = 0.0
     for s in 1:data.S

@@ -83,14 +83,11 @@ elseif options.algorithm == "benders"
     
 elseif options.algorithm == "heuristic"
     
-    total_time = @elapsed t_benders = run_heuristic(options, data, algo)
+    total_time = @elapsed t_heuristic = run_heuristic(options, data, algo)
     println()
-    println("Solution time = ", t_benders)
+    println("Solution time = ", t_heuristic)
     println("Total time = ", total_time)
 
 else
     println("Unknown algortihm ", options.algorithm)
 end
-
-
-

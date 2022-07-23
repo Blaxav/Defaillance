@@ -80,6 +80,8 @@ function update_h_data_best_sol(solution, options, h_data, data)
         h_data.found_solution_ite = true
         if solution.val < h_data.best_sol.val
             h_data.best_sol.val = solution.val
+            h_data.best_sol.flow = solution.flow
+            h_data.best_sol.prod = solution.prod
         end
         if investment_cost(solution, data) < h_data.UB_inv
             h_data.UB_inv = investment_cost(solution, data)
@@ -165,6 +167,10 @@ function counting_benders(master, subproblems, counting_SP,
         if h_data.total_time + h_data.counting_time >= algo.time_limit
             println("Time limit exceeded. Time : ", h_data.total_time + h_data.counting_time)
             println("Best solution value = ", h_data.best_sol.val)
+            println("############################")
+            println("Solution")
+            println("############################")
+            print_solution(h_data.best_sol, data)
             exit()
         end
     end
@@ -181,6 +187,11 @@ function counting_benders(master, subproblems, counting_SP,
     # Then update heuristic data
     h_data.counting_time += @elapsed counting_unsupplied__solution(h_data, best_solution, subproblems, counting_SP, algo, options, data)           
     update_h_data_best_sol(best_solution, options, h_data, data)
+
+    # If feasible for opt, then set RHS as UB_inv (IMPORTANT !!)
+    if h_data.found_solution_ite
+        h_data.UB_inv = h_data.invest_rhs
+    end
 
 
     h_data.benders_iteration = iteration
@@ -242,7 +253,7 @@ function run_heuristic(options, data, algo)
         )
 
         # Update investment constraint
-        h_level = 0.1
+        h_level = 0.5
         h_data.invest_rhs = h_level * h_data.UB_inv + (1-h_level) * h_data.LB_inv
         if h_data.UB_inv / h_data.LB_inv > 100
             h_data.invest_rhs = 10*h_data.LB_inv
@@ -252,11 +263,21 @@ function run_heuristic(options, data, algo)
         if h_data.total_time >= algo.time_limit
             println("Time limit exceeded. Time : ", h_data.total_time + h_data.counting_time)
             println("Best solution value = ", h_data.best_sol.val)
+            println("############################")
+            println("Solution")
+            println("############################")
+            print_solution(h_data.best_sol, data)
             exit()
         end
     end
 
+    println()
+    println("Solution found")
+    println("Best solution value = ", h_data.best_sol.val)
+    println("############################")
+    println("Solution")
+    println("############################")
+    print_solution(h_data.best_sol, data)
 
-
-    return t_feasibility_check
+    return h_data.total_time
 end
