@@ -123,11 +123,9 @@ function counting_benders(master, subproblems, counting_SP,
         else 
             compute_separation_point(best_solution, master_solution, separation_solution, algo, data)
         end
-        # 3. Fix investment candidates in subproblems
+
+        # 3. Fix investment candidates in subproblems and solve SPs
         fix_first_stage_candidate(subproblems, separation_solution, data)
-    
-        
-        # 4. Solve Subproblems
         for s in 1:data.S
             solve(subproblems[s]; silent_mode=true)
         end
@@ -135,40 +133,9 @@ function counting_benders(master, subproblems, counting_SP,
 
         # Compute value and unsupplied number
         if algo.heuristic_frequency == "All" && separation_solution.val < h_data.best_sol.val
-            counting_unsupplied__solution(h_data, separation_solution, subproblems, counting_SP, algo, options, data)
-            #=if algo.heuristic_strategy == "Min" && 
-                counting_unsupplied_total(subproblems, options.unsupplied_tolerance, data) > options.max_unsupplied
-                # Solve auxiliary SP
-                separation_solution.unsupplied = 0.0
-                fix_first_stage_candidate(counting_SP, separation_solution, data)
-                for s in 1:data.S
-                    opt_val = get_objective_value(subproblems[s])
-                    set_normalized_rhs(counting_SP[s].cost_constraint, opt_val + 1e-3)
-
-                    solve(counting_SP[s]; silent_mode=true)
-                    separation_solution.unsupplied += data.probability[s] * get_objective_value(counting_SP[s])
-
-                    if separation_solution.unsupplied > options.max_unsupplied
-                        break
-                    end
-                end
-            else
-                separation_solution.unsupplied = counting_unsupplied_total(subproblems, options.unsupplied_tolerance, data)
-            end =#    
             
-            
+            counting_unsupplied__solution(h_data, separation_solution, subproblems, counting_SP, algo, options, data)           
             update_h_data_best_sol(separation_solution, options, h_data, data)
-            
-            #=if separation_solution.unsupplied <= max_unsupplied
-                h_data.found_solution_ite = true
-                if separation_solution.val < h_data.best_sol.val
-                    h_data.best_sol.val = separation_solution.val
-                    #println("Best found = ", separation_solution.val)
-                end
-                if investment_cost(separation_solution, data) < h_data.UB_inv
-                    h_data.UB_inv = investment_cost(separation_solution, data)
-                end
-            end=#
         end
 
         # Update UB
@@ -192,6 +159,20 @@ function counting_benders(master, subproblems, counting_SP,
             @printf("%-10i%-20.6e%-20.6e%-15.3e%15.3f\n", iteration, LB, best_solution.val, (best_solution.val-LB)/best_solution.val, algo.step_size)
         end
     end
+
+
+    # Check unsupplied of benders_best_solution
+    # As solution in SPs is not from the same solution, we need to solve them again
+    fix_first_stage_candidate(subproblems, best_solution, data)
+    for s in 1:data.S
+        solve(subproblems[s]; silent_mode=true)
+    end
+    compute_ub(subproblems, best_solution, data; invest_free)
+
+    # Then update heuristic data
+    counting_unsupplied__solution(h_data, best_solution, subproblems, counting_SP, algo, options, data)           
+    update_h_data_best_sol(best_solution, options, h_data, data)
+
 end
 
 
@@ -217,9 +198,9 @@ function run_heuristic(options, data, algo)
 
     iteration = 0
     # Initializing with stochastic solution
-    @printf("%-10s%-20s%-20s%-20s%-20s%-20s%-20s%-20s%-15s%-20s%-20s\n", "Ite", "Best sol", 
+    @printf("%-10s%-20s%-20s%-20s%-20s%-20s%-20s%-20s%-15s%-20s\n", "Ite", "Best sol", 
             "Invest_min", "Invest_max", "Gap", "Constraint value", 
-            "Invest cost", "Objective", "Unsupplied", "Optim time", "Counting time" )
+            "Invest cost", "Objective", "Unsupplied", "Optim time" )
     while (h_data.UB_inv - h_data.LB_inv)/h_data.UB_inv > 1e-6
 
         iteration += 1
@@ -235,8 +216,11 @@ function run_heuristic(options, data, algo)
         invest_cost = investment_cost(benders_best_solution, data) 
         benders_val = benders_best_solution.val
 
+        #counting_unsupplied__solution(h_data, benders_best_solution, subproblems, counting_SP, algo, options, data)           
+        #update_h_data_best_sol(benders_best_solution, options, h_data, data)
+
         # Count and update data
-        t_counting = 0.0
+        #=t_counting = 0.0
         if algo.heuristic_frequency == "All"
             total_unsupplied = benders_best_solution.unsupplied
         else
@@ -254,12 +238,16 @@ function run_heuristic(options, data, algo)
             end
         elseif h_data.found_solution_ite == false
             h_data.LB_inv = max(invest_cost, h_data.LB_inv)
-        end
+        end=#
 
-        @printf("%-10i%-20.6e%-20.6e%-20.6e%-20.2e%-20.6e%-20.6e%-20.6e%-15.2f%-20.6e%-20.6e\n", iteration, 
+        if h_data.found_solution_ite == false
+            h_data.LB_inv = max(invest_cost, h_data.LB_inv)
+        end   
+
+        @printf("%-10i%-20.6e%-20.6e%-20.6e%-20.2e%-20.6e%-20.6e%-20.6e%-15.2f%-20.6e\n", iteration, 
                 h_data.best_sol.val, h_data.LB_inv, 
                 h_data.UB_inv, (h_data.UB_inv - h_data.LB_inv)/h_data.UB_inv, h_data.invest_rhs, 
-                invest_cost, benders_val, total_unsupplied, t_benders, t_counting
+                invest_cost, benders_val, benders_best_solution.unsupplied, t_benders
         )
 
 
