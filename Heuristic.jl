@@ -64,16 +64,6 @@ function counting_unsupplied__solution(h_data, separation_solution, subproblems,
     else
         separation_solution.unsupplied = counting_unsupplied_total(subproblems, options.unsupplied_tolerance, data)
     end            
-    
-    #=if separation_solution.unsupplied <= options.max_unsupplied
-        h_data.found_solution_ite = true
-        if separation_solution.val < h_data.best_sol.val
-            h_data.best_sol.val = separation_solution.val
-        end
-        if investment_cost(separation_solution, data) < h_data.UB_inv
-            h_data.UB_inv = investment_cost(separation_solution, data)
-        end
-    end=#
 end
 
 function update_h_data_best_sol(solution, options, h_data, data)
@@ -216,30 +206,6 @@ function run_heuristic(options, data, algo)
         invest_cost = investment_cost(benders_best_solution, data) 
         benders_val = benders_best_solution.val
 
-        #counting_unsupplied__solution(h_data, benders_best_solution, subproblems, counting_SP, algo, options, data)           
-        #update_h_data_best_sol(benders_best_solution, options, h_data, data)
-
-        # Count and update data
-        #=t_counting = 0.0
-        if algo.heuristic_frequency == "All"
-            total_unsupplied = benders_best_solution.unsupplied
-        else
-            t_counting += @elapsed total_unsupplied = counting_unsupplied_total(subproblems, options.unsupplied_tolerance, data)
-        end
-
-        if total_unsupplied <= options.max_unsupplied
-            # Feasible solution
-            if invest_cost < h_data.UB_inv
-                h_data.UB_inv = invest_cost
-            end
-            
-            if benders_best_solution.val < h_data.best_sol.val
-                h_data.best_sol.val = benders_best_solution.val
-            end
-        elseif h_data.found_solution_ite == false
-            h_data.LB_inv = max(invest_cost, h_data.LB_inv)
-        end=#
-
         if h_data.found_solution_ite == false
             h_data.LB_inv = max(invest_cost, h_data.LB_inv)
         end   
@@ -249,7 +215,6 @@ function run_heuristic(options, data, algo)
                 h_data.UB_inv, (h_data.UB_inv - h_data.LB_inv)/h_data.UB_inv, h_data.invest_rhs, 
                 invest_cost, benders_val, benders_best_solution.unsupplied, t_benders
         )
-
 
         # Update investment constraint
         h_level = 0.1
