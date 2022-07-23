@@ -1,28 +1,6 @@
 #########################################################################################
 # Import management
 #########################################################################################
-#=if "--install-packages" in ARGS
-    import Pkg
-    Pkg.add("Random")
-    Pkg.add("Plots")
-    Pkg.add("JuMP")
-    Pkg.add("CPLEX")
-    Pkg.add("Dualization")
-    Pkg.add("BilevelJuMP")
-    Pkg.build("CPLEX")
-end
-
-try
-    using Random
-    using Plots
-    using JuMP, CPLEX, BilevelJuMP
-    using Printf
-catch
-    println("ERROR : Some recquired packages not found.")
-    println("        Run with option --install-packages to install them")
-    exit()
-end=#
-
 include("graph.jl")
 
 ##################################################################################################

@@ -8,6 +8,10 @@ mutable struct HeuristicData
     max_unsupplied::Float64
     best_sol::BendersSolution
     found_solution_ite::Bool
+    min_unsupplied::Float64
+    counting_time::Float64
+    total_time::Float64
+    benders_iteration::Int64
 end
 
 
@@ -45,8 +49,11 @@ end
 
 
 function counting_unsupplied__solution(h_data, separation_solution, subproblems, counting_SP, algo, options, data)
+
+    rand_unsupplied_value = counting_unsupplied_total(subproblems, options.unsupplied_tolerance, data)
+
     if algo.heuristic_strategy == "Min" && 
-        counting_unsupplied_total(subproblems, options.unsupplied_tolerance, data) > options.max_unsupplied
+        rand_unsupplied_value > options.max_unsupplied
         # Solve auxiliary SP
         separation_solution.unsupplied = 0.0
         fix_first_stage_candidate(counting_SP, separation_solution, data)
@@ -62,8 +69,10 @@ function counting_unsupplied__solution(h_data, separation_solution, subproblems,
             end
         end
     else
-        separation_solution.unsupplied = counting_unsupplied_total(subproblems, options.unsupplied_tolerance, data)
-    end            
+        separation_solution.unsupplied = rand_unsupplied_value
+    end
+    
+    h_data.min_unsupplied = min(rand_unsupplied_value, h_data.min_unsupplied)
 end
 
 function update_h_data_best_sol(solution, options, h_data, data)
@@ -91,6 +100,9 @@ function counting_benders(master, subproblems, counting_SP,
     iteration = 0
     cut_data = CutData(edge_dict(), prod_dict(), edge_dict(), prod_dict(), 0.0)
     stop = false
+    h_data.counting_time    = 0.0
+    h_data.min_unsupplied   = 0.0
+    h_data.min_unsupplied = 1e20
 
     if print_log
         @printf("%-10s%-20s%-20s%-15s%15s\n", "ITER", "LB", "BEST UB", "GAP", "STEP SIZE")
@@ -124,7 +136,7 @@ function counting_benders(master, subproblems, counting_SP,
         # Compute value and unsupplied number
         if algo.heuristic_frequency == "All" && separation_solution.val < h_data.best_sol.val
             
-            counting_unsupplied__solution(h_data, separation_solution, subproblems, counting_SP, algo, options, data)           
+            h_data.counting_time += @elapsed counting_unsupplied__solution(h_data, separation_solution, subproblems, counting_SP, algo, options, data)           
             update_h_data_best_sol(separation_solution, options, h_data, data)
         end
 
@@ -148,6 +160,13 @@ function counting_benders(master, subproblems, counting_SP,
         if print_log && ( stop == true || iteration % log_freq == 0 )
             @printf("%-10i%-20.6e%-20.6e%-15.3e%15.3f\n", iteration, LB, best_solution.val, (best_solution.val-LB)/best_solution.val, algo.step_size)
         end
+
+        # Test time limit
+        if h_data.total_time + h_data.counting_time >= algo.time_limit
+            println("Time limit exceeded. Time : ", h_data.total_time + h_data.counting_time)
+            println("Best solution value = ", h_data.best_sol.val)
+            exit()
+        end
     end
 
 
@@ -160,9 +179,11 @@ function counting_benders(master, subproblems, counting_SP,
     compute_ub(subproblems, best_solution, data; invest_free)
 
     # Then update heuristic data
-    counting_unsupplied__solution(h_data, best_solution, subproblems, counting_SP, algo, options, data)           
+    h_data.counting_time += @elapsed counting_unsupplied__solution(h_data, best_solution, subproblems, counting_SP, algo, options, data)           
     update_h_data_best_sol(best_solution, options, h_data, data)
 
+
+    h_data.benders_iteration = iteration
 end
 
 
@@ -172,15 +193,17 @@ function run_heuristic(options, data, algo)
     time_master_prob_creation = @elapsed master = create_master_benders_problem(data)
     subproblems =  Vector{BendersSubroblem}(undef, data.S)
     counting_SP =  Vector{BendersSubroblem}(undef, data.S)
-    for s in 1:data.S
-        subproblems[s] = create_benders_subproblem(data, s)
-        counting_SP[s] = create_benders_subproblem_with_counting(data, s, options.unsupplied_tolerance)
-    end
+    time_subproblems_creation = @elapsed create_all_subproblems(subproblems, counting_SP; create_counting=true)
+
+    println("Time master problem creation : ", time_master_prob_creation)
+    println("Time subproblem creation     : ", time_subproblems_creation)
+    println()
 
     # Instanciate heuristic data
     h_data = HeuristicData(
         0.0, 1e20, 0.0, options.unsupplied_tolerance, options.max_unsupplied,
-        BendersSolution(edge_dict(), prod_dict(), 1e20, 0.0), false
+        BendersSolution(edge_dict(), prod_dict(), 1e20, 0.0), false,
+        0.0, 0.0, 0.0, 0
     )
 
     # Feasibility check
@@ -188,9 +211,9 @@ function run_heuristic(options, data, algo)
 
     iteration = 0
     # Initializing with stochastic solution
-    @printf("%-10s%-20s%-20s%-20s%-20s%-20s%-20s%-20s%-15s%-20s\n", "Ite", "Best sol", 
+    @printf("%-10s%-20s%-20s%-20s%-12s%-20s%-20s%-20s%-15s%-15s%-15s%-15s\n", "Ite", "Best sol", 
             "Invest_min", "Invest_max", "Gap", "Constraint value", 
-            "Invest cost", "Objective", "Unsupplied", "Optim time" )
+            "Invest cost", "Objective", "Unsupplied", "Optim time", "Count time", "Total time" )
     while (h_data.UB_inv - h_data.LB_inv)/h_data.UB_inv > 1e-6
 
         iteration += 1
@@ -205,15 +228,17 @@ function run_heuristic(options, data, algo)
         
         invest_cost = investment_cost(benders_best_solution, data) 
         benders_val = benders_best_solution.val
+        h_data.total_time += t_benders
 
         if h_data.found_solution_ite == false
             h_data.LB_inv = max(invest_cost, h_data.LB_inv)
         end   
 
-        @printf("%-10i%-20.6e%-20.6e%-20.6e%-20.2e%-20.6e%-20.6e%-20.6e%-15.2f%-20.6e\n", iteration, 
+        @printf("%-10i%-20.6e%-20.6e%-20.6e%-12.2e%-20.6e%-20.6e%-20.6e%-15.2f%-15.2e%-15.2e%-15.2e\n", iteration, 
                 h_data.best_sol.val, h_data.LB_inv, 
                 h_data.UB_inv, (h_data.UB_inv - h_data.LB_inv)/h_data.UB_inv, h_data.invest_rhs, 
-                invest_cost, benders_val, benders_best_solution.unsupplied, t_benders
+                invest_cost, benders_val, h_data.min_unsupplied, t_benders, 
+                h_data.counting_time, h_data.total_time
         )
 
         # Update investment constraint
@@ -224,7 +249,11 @@ function run_heuristic(options, data, algo)
         end
         set_normalized_rhs(master.heuristic_constraint, h_data.invest_rhs)
 
-        
+        if h_data.total_time >= algo.time_limit
+            println("Time limit exceeded. Time : ", h_data.total_time + h_data.counting_time)
+            println("Best solution value = ", h_data.best_sol.val)
+            exit()
+        end
     end
 
 

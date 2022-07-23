@@ -32,7 +32,7 @@ function create_bilevel_invest_problem(data, algo; unsupplied_tolerance=1e-6, ma
         optimizer_with_attributes(
             () -> CPLEX.Optimizer(), 
             "CPXPARAM_Threads" => 1, 
-            "CPXPARAM_TimeLimit" => 3600), 
+            "CPXPARAM_TimeLimit" => algo.time_limit), 
         mode = algo.bilevel_mode)
         #mode = BilevelJuMP.IndicatorMode())
         #mode = BilevelJuMP.FortunyAmatMcCarlMode(primal_big_M = 8000, dual_big_M = 10000))

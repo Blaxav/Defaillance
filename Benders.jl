@@ -121,6 +121,15 @@ function create_master_benders_problem(data)
 end
 
 
+function create_all_subproblems(subproblems, counting_SP; create_counting=false)
+    for s in 1:data.S
+        subproblems[s] = create_benders_subproblem(data, s)
+        if create_counting
+            counting_SP[s] = create_benders_subproblem_with_counting(data, s, options.unsupplied_tolerance)
+        end
+    end
+end
+
 function create_mean_value_prob(data)
     model = Model(CPLEX.Optimizer)
     set_optimizer_attribute(model, "CPXPARAM_Threads", 1)
