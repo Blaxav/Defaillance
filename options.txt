@@ -1,7 +1,7 @@
 ####################################
 # Seed
 ####################################
-seed = 0
+seed = 5042
 
 ####################################
 # Graph options
@@ -12,14 +12,14 @@ graph_density = 10
 ####################################
 # Problem datas
 ####################################
-scenarios           = 20
-time_steps          = 24
+scenarios           = 10
+time_steps          = 10
 
 demand_range        = 50:400
 prod_cost_range     = 20:80
-unsupplied_cost     = 1500
+unsupplied_cost     = 5000
 flow_cost_range     = 1:1
-grad_prod           = 1.2
+grad_prod           = 0.3
 invest_flow_range   = 1000:8000
 invest_prod_range   = 1000:8000
 flow_init_max       = 100

@@ -18,7 +18,7 @@ end
 function feasibility_check(master, subproblems, heuristic_data, options, data)
 
     # Set investment free objective function (investment cost set to perturbation value)
-    set_invest_free_master_problem(master, data; perturbation = 0.001)
+    set_invest_free_master_problem(master, data; perturbation = 0.0)
 
     best_solution = BendersSolution(edge_dict(), prod_dict(), 1e20, 0.0)
     t_feasibility = @elapsed benders_sequential(master, subproblems, data, algo, best_solution; 
