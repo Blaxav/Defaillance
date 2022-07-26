@@ -57,7 +57,7 @@ create_benders_subproblem : Returns a subproblem of Benders decomposition
 """
 function create_benders_subproblem(data, s)
     #model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
-    model = Model(CPLEX.Optimizer)
+    model = Model(CPLEX.Optimizer; add_bridges = false)
     set_optimizer_attribute(model, "CPXPARAM_Threads", 1)
 
     # invest variables
@@ -100,7 +100,7 @@ create_master_benders_problem : Returns a Master problem of Benders decompositio
 """
 function create_master_benders_problem(data)
     #model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), "Threads" => 1, "TimeLimit" => 600))
-    model = Model(CPLEX.Optimizer)
+    model = Model(CPLEX.Optimizer; add_bridges = false)
     set_optimizer_attribute(model, "CPXPARAM_Threads", 1)
 
     # invest variables
@@ -123,7 +123,6 @@ end
 
 function create_all_subproblems(subproblems, counting_SP; create_counting=false)
     for s in 1:data.S
-        println("Creating SP ", s)
         subproblems[s] = create_benders_subproblem(data, s)
         if create_counting
             counting_SP[s] = create_benders_subproblem_with_counting(data, s, options.unsupplied_tolerance)
@@ -132,7 +131,7 @@ function create_all_subproblems(subproblems, counting_SP; create_counting=false)
 end
 
 function create_mean_value_prob(data; invest_free=false)
-    model = Model(CPLEX.Optimizer)
+    model = Model(CPLEX.Optimizer; add_bridges = false)
     set_optimizer_attribute(model, "CPXPARAM_Threads", 1)
 
     # invest variables
@@ -290,16 +289,18 @@ end
 function counting_unsupplied_scenario
     brief: Computes the number of nodes which loss of load for a given scenario after optimization
 """
-function counting_unsupplied_scenario(prob, epsilon, data)
+function counting_unsupplied_scenario(prob, epsilon, data, unsupplied_sol)
     #return sum( value(prob.unsupplied[n,t]) > epsilon ? 1 : 0 for n in 1:data.network.N, t in 1:data.T )
-    length( filter(x -> x > epsilon, value.(prob.unsupplied)) )
+    #length( filter(x -> x > epsilon, value.(prob.unsupplied)) )
+    unsupplied_sol = value.(prob.unsupplied)
+    length( filter(x -> x > epsilon, unsupplied_sol) )
 end
 
 
-function counting_unsupplied_total(subproblems, tolerance, data)
+function counting_unsupplied_total(subproblems, tolerance, data, unsupplied_sol)
     total_unsupplied = 0.0
     for s in 1:data.S
-        total_unsupplied += data.probability[s] * counting_unsupplied_scenario(subproblems[s], tolerance, data)
+        total_unsupplied += data.probability[s] * counting_unsupplied_scenario(subproblems[s], tolerance, data, unsupplied_sol)
     end
     return total_unsupplied
 end
@@ -428,7 +429,25 @@ function run_benders(options, data, algo)
     return t_benders
 end
 
-
+function print_problem_summary(master, subproblems, data)
+    println("Problem summary")
+    n_vars_master = num_variables(master.model) - (data.S + 1) # Substracting epigraph variables
+    # Substracting n_vars as bounds are counted as inequality constraints
+    n_cons_master = sum(num_constraints(master.model, F, S) 
+        for (F, S) in list_of_constraint_types(master.model)) - n_vars_master - (data.S + 1)
+    println("Master problem variables   = ", n_vars_master ) 
+    println("Master problem constraints = ", n_cons_master)
+    println()
+    n_vars_SP = num_variables(subproblems[1].model) - n_vars_master # Substracting master prob variables
+    n_cons_SP = sum(num_constraints(subproblems[1].model, F, S) 
+        for (F, S) in list_of_constraint_types(subproblems[1].model)) - n_vars_master - n_vars_SP
+    println("Subproblems    variables   = ", n_vars_SP) 
+    println("Subproblems    constraints = ", n_cons_SP)
+    println()
+    println("Total number of variables   = ", n_vars_master + data.S * n_vars_SP)
+    println("Total number of constraints = ", n_cons_master + data.S * n_cons_SP)
+    println()
+end
 
 ################################################################
 # Counting Subproblems

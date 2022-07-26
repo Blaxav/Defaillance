@@ -12,6 +12,7 @@ mutable struct HeuristicData
     counting_time::Float64
     total_time::Float64
     benders_iteration::Int64
+    unsupplied_sol
 end
 
 
@@ -26,7 +27,8 @@ function feasibility_check(master, subproblems, heuristic_data, options, data, p
         print_log=print_log, log_freq=1, invest_free=true)
 
     # Counting unsupplied 
-    total_unsupplied = counting_unsupplied_total(subproblems, options.unsupplied_tolerance, data)
+    unsupplied_sol = zeros(Float64, data.network.N, data.T)
+    total_unsupplied = counting_unsupplied_total(subproblems, options.unsupplied_tolerance, data, unsupplied_sol)
 
     println("Time feasilbility check = ", t_feasibility)
     if total_unsupplied > 0.0
@@ -54,8 +56,9 @@ end
 
 
 function counting_unsupplied__solution(h_data, separation_solution, subproblems, counting_SP, algo, options, data)
-
-    rand_unsupplied_value = counting_unsupplied_total(subproblems, options.unsupplied_tolerance, data)
+    
+    rand_unsupplied_value = counting_unsupplied_total(subproblems, options.unsupplied_tolerance, 
+                                data, h_data.unsupplied_sol)
 
     if algo.heuristic_strategy == "Min" && 
         rand_unsupplied_value > options.max_unsupplied
@@ -146,7 +149,7 @@ function counting_benders(master, subproblems, counting_SP,
         # Compute value and unsupplied number
         if algo.heuristic_frequency == "All" && separation_solution.val < h_data.best_sol.val
             
-            h_data.counting_time += @elapsed counting_unsupplied__solution(h_data, separation_solution, subproblems, counting_SP, algo, options, data)           
+            @time h_data.counting_time += @elapsed counting_unsupplied__solution(h_data, separation_solution, subproblems, counting_SP, algo, options, data)           
             update_h_data_best_sol(separation_solution, options, h_data, data)
         end
 
@@ -207,16 +210,18 @@ end
 
 function heuristic(master, subproblems, counting_SP, h_data, options, data, algo)
     # Feasibility check
-    print_feasibility_log = true
+    print_feasibility_log = false
     perturbation = 0.0
+    println()
+    println("Feasibility check")
     t_feasibility_check = feasibility_check(master, subproblems, h_data, 
         options, data, print_feasibility_log, perturbation)
 
     iteration = 0
-    # Initializing with stochastic solution
     @printf("%-10s%-20s%-20s%-20s%-12s%-20s%-20s%-20s%-15s%-15s%-15s%-15s\n", "Ite", "Best sol", 
             "Invest_min", "Invest_max", "Gap", "Constraint value", 
             "Invest cost", "Objective", "Unsupplied", "Optim time", "Count time", "Total time" )
+
     while (h_data.UB_inv - h_data.LB_inv)/h_data.UB_inv > 1e-6
 
         iteration += 1
@@ -226,7 +231,7 @@ function heuristic(master, subproblems, counting_SP, h_data, options, data, algo
         benders_best_solution = BendersSolution(edge_dict(), prod_dict(), 1e20, 0.0)
         t_benders = @elapsed counting_benders(master, subproblems, counting_SP,
                 data, algo, benders_best_solution, h_data, options.max_unsupplied; 
-                print_log=true, log_freq=1, invest_free=false)
+                print_log=false, log_freq=1, invest_free=false)
         
         invest_cost = investment_cost(benders_best_solution, data) 
         benders_val = benders_best_solution.val
@@ -280,14 +285,16 @@ function run_heuristic(options, data, algo)
     println("Time master problem creation : ", time_master_prob_creation)
     println("Time subproblem creation     : ", time_subproblems_creation)
     println()
+    print_problem_summary(master, subproblems, data)
 
     # Instanciate heuristic data
     h_data = HeuristicData(
         0.0, 1e20, 0.0, options.unsupplied_tolerance, options.max_unsupplied,
         BendersSolution(edge_dict(), prod_dict(), 1e20, 0.0), false,
-        0.0, 0.0, 0.0, 0
+        0.0, 0.0, 0.0, 0, zeros(Float64, data.network.N, data.T)
     )
 
+    println("Launching heuristic")
     heuristic(master, subproblems, counting_SP, h_data, options, data, algo)
 
     println()

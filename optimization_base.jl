@@ -11,32 +11,32 @@ include("problemDataGenerator.jl")
 # Creating variables
 ############################################################################
 function variables_investment_flow(model, data, n_scenarios = 1)
-    @variable(model, 0 <= invest_flow[e in data.network.edges])
+    @variable(model, 0 <= invest_flow[e in data.network.edges], set_string_name = false)
 end
 
 function variables_investment_production(model, data)
-    @variable(model, 0 <= invest_prod[n in production_nodes(data)])
+    @variable(model, 0 <= invest_prod[n in production_nodes(data)], set_string_name = false)
 end
 
 function variables_flow(model, data)
-    @variable(model, flow[e in data.network.edges, t in 1:data.T])
+    @variable(model, flow[e in data.network.edges, t in 1:data.T], set_string_name = false)
 end
 
 function variables_absolute_value_flow(model, data)
-    @variable(model, 0 <= flow_abs[e in data.network.edges, t in 1:data.T])
+    @variable(model, 0 <= flow_abs[e in data.network.edges, t in 1:data.T], set_string_name = false)
 end 
     
 function variables_production(model, data)
     @variable(model, 0 <= prod[n in 1:data.network.N, t in 1:data.T; 
-        data.has_production[n] == 1])
+        data.has_production[n] == 1], set_string_name = false)
 end
 
 function variables_unsupplied_energy(model, data)
-    @variable(model, 0 <= unsupplied[i in 1:data.network.N, t in 1:data.T])
+    @variable(model, 0 <= unsupplied[i in 1:data.network.N, t in 1:data.T], set_string_name = false)
 end
 
 function variables_spilled_energy(model, data)    
-    @variable(model, 0 <= spilled[i in 1:data.network.N, t in 1:data.T])
+    @variable(model, 0 <= spilled[i in 1:data.network.N, t in 1:data.T], set_string_name = false)
 end
 
 function variables_epigraph_on_scenario(model, data)
@@ -57,7 +57,8 @@ function constraint_max_prod(model, prod, invest_prod, data, n_scenarios=1)
     if n_scenarios == 1
         @constraint(model, prod_max[n in 1:data.network.N, t in 1:data.T; 
             data.has_production[n] == 1],
-            prod[n,t] <= invest_prod[n])
+            prod[n,t] <= invest_prod[n]
+            , set_string_name = false)
     end
 end
     
@@ -65,24 +66,28 @@ function constraint_production_positive_gradient(model, invest_prod, prod, data,
     if n_scenarios == 1
         @constraint(model, grad_positive[n in 1:data.network.N, t in 1:data.T; 
             data.has_production[n] == 1],
-            prod[n,t] <= (t > 1 ? prod[n,t-1] : prod[n,data.T]) + data.grad_prod*invest_prod[n] )
+            prod[n,t] <= (t > 1 ? prod[n,t-1] : prod[n,data.T]) + data.grad_prod*invest_prod[n],
+            set_string_name = false)
     end
 end
 
 function constraint_production_negative_gradient(model, invest_prod, prod, data, n_scenarios = 1)
     @constraint(model, grad_negative[n in 1:data.network.N, t in 1:data.T; 
         data.has_production[n] == 1],
-        prod[n,t] >= (t > 1 ? prod[n,t-1] : prod[n,data.T]) - data.grad_prod*invest_prod[n] )
+        prod[n,t] >= (t > 1 ? prod[n,t-1] : prod[n,data.T]) - data.grad_prod*invest_prod[n],
+        set_string_name = false)
 end
 
 function constraint_flow_max_positive(model, flow, invest_flow, data, n_scenarios = 1)
     @constraint(model, flow_max_positive[e in data.network.edges, t in 1:data.T], 
-        flow[e,t] <= data.flow_init[e] + invest_flow[e])
+        flow[e,t] <= data.flow_init[e] + invest_flow[e],
+        set_string_name = false)
 end
 
 function constraint_flow_max_negative(model, flow, invest_flow, data, n_scenarios = 1)
     @constraint(model, flow_max_negative[e in data.network.edges, t in 1:data.T], 
-        -(invest_flow[e] + data.flow_init[e]) <= flow[e,t])
+        -(invest_flow[e] + data.flow_init[e]) <= flow[e,t],
+        set_string_name = false)
 end
 
 function constraint_flow_max(model, flow, invest_flow, data, n_scenarios = 1)
@@ -93,9 +98,11 @@ end
 function constraint_absolute_flow_behavior(model, flow, flow_abs, n_scenarios = 1)
     # Absolute value of flow in cost
     @constraint(model, flow_abs_positive[e in data.network.edges, t in 1:data.T], 
-        flow_abs[e,t] >= flow[e,t])
+        flow_abs[e,t] >= flow[e,t],
+        set_string_name = false)
     @constraint(model, flow_abs_negative[e in data.network.edges, t in 1:data.T], 
-        flow_abs[e,t] >= -flow[e,t])
+        flow_abs[e,t] >= -flow[e,t],
+        set_string_name = false)
 end
 
 function constraint_flow_conservation(model, prod, flow, unsupplied, spilled, data; n_scenarios = 1, which_scenario = -1)
@@ -104,8 +111,8 @@ function constraint_flow_conservation(model, prod, flow, unsupplied, spilled, da
             sum(flow[e,t] for e in data.network.edges if e.to == n) - 
             sum(flow[e,t] for e in data.network.edges if e.from == n) + 
             (data.has_production[n] == 1 ? prod[n,t] : 0) + 
-            unsupplied[n,t] - spilled[n,t] == data.scenario[which_scenario].demands[n,t]
-            )
+            unsupplied[n,t] - spilled[n,t] == data.scenario[which_scenario].demands[n,t],
+            set_string_name = false)
     end
 end
 
@@ -125,8 +132,8 @@ function constraint_flow_conservation_expextation(
         sum(flow[e,t] for e in data.network.edges if e.to == n) - 
         sum(flow[e,t] for e in data.network.edges if e.from == n) + 
         (data.has_production[n] == 1 ? prod[n,t] : 0) + 
-        unsupplied[n,t] - spilled[n,t] == expected_demand[n,t]
-        )
+        unsupplied[n,t] - spilled[n,t] == expected_demand[n,t],
+        set_string_name = false)
 end
 
 
@@ -134,8 +141,8 @@ function constraint_minimum_investment(model, invest_flow, invest_prod, data)
     @constraint(model, invest_cost,
         sum( [data.invest_flow_cost[e] * invest_flow[e] for e in data.network.edges]) +
         sum( data.invest_prod_cost[n] * invest_prod[n] for n in 1:data.network.N 
-            if data.has_production[n] == 1) >= 0.0
-        )
+            if data.has_production[n] == 1) >= 0.0,
+        set_string_name = false)
 end
     
 function constraint_total_epigraph(model, theta_sum, theta, data)
