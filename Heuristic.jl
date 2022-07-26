@@ -149,7 +149,7 @@ function counting_benders(master, subproblems, counting_SP,
         # Compute value and unsupplied number
         if algo.heuristic_frequency == "All" && separation_solution.val < h_data.best_sol.val
             
-            @time h_data.counting_time += @elapsed counting_unsupplied__solution(h_data, separation_solution, subproblems, counting_SP, algo, options, data)           
+            h_data.counting_time += @elapsed counting_unsupplied__solution(h_data, separation_solution, subproblems, counting_SP, algo, options, data)           
             update_h_data_best_sol(separation_solution, options, h_data, data)
         end
 

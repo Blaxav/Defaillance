@@ -6,14 +6,14 @@ seed = 1054
 ####################################
 # Graph options
 ####################################
-N = 30
+N = 10
 graph_density = 10
 
 ####################################
 # Problem datas
 ####################################
-scenarios           = 250
-time_steps          = 100
+scenarios           = 25
+time_steps          = 10
 
 demand_range        = 50:400
 prod_cost_range     = 20:80
