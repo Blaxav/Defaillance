@@ -154,7 +154,7 @@ function objective_subproblem(model, unsupplied, prod, flow_abs, data; which_sce
             sum( data.scenario[which_scenario].unsupplied_cost * unsupplied[n,t] 
                 for n in 1:data.network.N ) +
             # production costs
-            sum( data.scenario[which_scenario].prod_cost[n][t] * prod[n,t] 
+            sum( data.scenario[which_scenario].prod_cost[n] * prod[n,t] 
                 for n in 1:data.network.N 
                 if data.has_production[n] == 1) +
             # flow cost
@@ -175,7 +175,7 @@ function objective_master_problem(model, invest_flow, invest_prod, theta_sum, da
 end
 
 function objective_mean_value_prob(model, invest_flow, invest_prod, 
-    unsupplied, prod, flow_abs, data)
+    unsupplied, prod, flow_abs, data; invest_free = false)
 
     expected_flow_cost = edge_dict()
     for e in data.network.edges
@@ -186,37 +186,54 @@ function objective_mean_value_prob(model, invest_flow, invest_prod,
 
     expected_prod_cost = zeros(Float64, data.network.N, data.T)
     for n in production_nodes(data)
-        for t in 1:data.T
-            for s in 1:data.S
-                expected_prod_cost[n,t] += data.probability[s] * data.scenario[s].prod_cost[n][t]
-            end
+        #for t in 1:data.T
+        for s in 1:data.S
+            #expected_prod_cost[n,t] += data.probability[s] * data.scenario[s].prod_cost[n][t]
+            expected_prod_cost[n] += data.probability[s] * data.scenario[s].prod_cost[n]
         end
+        #end
     end
 
-    @objective(model, Min,
-        sum( data.invest_flow_cost[e] * invest_flow[e] for e in data.network.edges ) +
-        sum( data.invest_prod_cost[n] * invest_prod[n] for n in 1:data.network.N 
-            if data.has_production[n] == 1) +
-        # Sum on time steps
-        sum(
-            (
-                # unsupplied costs
-                sum( data.scenario[1].unsupplied_cost * unsupplied[n,t] 
-                    for n in 1:data.network.N ) +
-                # production costs
-                sum( expected_prod_cost[n,t] * prod[n,t] for n in production_nodes(data)) +
-                # flow cost
-                sum( expected_flow_cost[e] * flow_abs[e,t] for e in data.network.edges )
-            ) 
-        for t in 1:data.T )
-    )
+    if invest_free == true
+        @objective(model, Min,
+            # Sum on time steps
+            sum(
+                (
+                    # unsupplied costs
+                    sum( data.scenario[1].unsupplied_cost * unsupplied[n,t] 
+                        for n in 1:data.network.N ) +
+                    # production costs
+                    sum( expected_prod_cost[n] * prod[n,t] for n in production_nodes(data)) +
+                    # flow cost
+                    sum( expected_flow_cost[e] * flow_abs[e,t] for e in data.network.edges )
+                ) 
+            for t in 1:data.T )
+        )
+    else
+        @objective(model, Min,
+            sum( data.invest_flow_cost[e] * invest_flow[e] for e in data.network.edges ) +
+            sum( data.invest_prod_cost[n] * invest_prod[n] for n in 1:data.network.N 
+                if data.has_production[n] == 1) +
+            # Sum on time steps
+            sum(
+                (
+                    # unsupplied costs
+                    sum( data.scenario[1].unsupplied_cost * unsupplied[n,t] 
+                        for n in 1:data.network.N ) +
+                    # production costs
+                    sum( expected_prod_cost[n] * prod[n,t] for n in production_nodes(data)) +
+                    # flow cost
+                    sum( expected_flow_cost[e] * flow_abs[e,t] for e in data.network.edges )
+                ) 
+            for t in 1:data.T )
+        )
+    end
 end
 
 function set_invest_free_master_problem(master, data; perturbation=1e-3)
     @objective(master.model, Min,
         sum( perturbation * master.invest_flow[e] for e in data.network.edges ) +
-        sum( perturbation * master.invest_prod[n] for n in 1:data.network.N 
-            if data.has_production[n] == 1) +
+        sum( perturbation * master.invest_prod[n] for n in production_nodes(data)) +
         master.theta_sum
     )
 end

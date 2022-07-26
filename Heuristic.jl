@@ -15,21 +15,26 @@ mutable struct HeuristicData
 end
 
 
-function feasibility_check(master, subproblems, heuristic_data, options, data)
+function feasibility_check(master, subproblems, heuristic_data, options, data, print_log, perturbation)
 
     # Set investment free objective function (investment cost set to perturbation value)
-    set_invest_free_master_problem(master, data; perturbation = 0.0)
+    set_invest_free_master_problem(master, data; perturbation = perturbation)
 
     best_solution = BendersSolution(edge_dict(), prod_dict(), 1e20, 0.0)
+    initialize_mean_value_solution(master, subproblems, best_solution, data; invest_free=true)
     t_feasibility = @elapsed benders_sequential(master, subproblems, data, algo, best_solution; 
-        print_log=false, log_freq=1, invest_free=true)
+        print_log=print_log, log_freq=1, invest_free=true)
 
     # Counting unsupplied 
     total_unsupplied = counting_unsupplied_total(subproblems, options.unsupplied_tolerance, data)
 
+    println("Time feasilbility check = ", t_feasibility)
     if total_unsupplied > 0.0
-        println("Infeasible instance. Minimum unsupplied = ", total_unsupplied)
-        exit()
+        println("Feasibility checke failed")
+        println("Minimum unsupplied = ", total_unsupplied)
+        println("UB on investment set to 1e20")
+        println()
+        heuristic_data.UB_inv = 1e20
     else
         println("Feasilibity check passed.")
         heuristic_data.UB_inv = investment_cost(best_solution, data)
@@ -80,8 +85,12 @@ function update_h_data_best_sol(solution, options, h_data, data)
         h_data.found_solution_ite = true
         if solution.val < h_data.best_sol.val
             h_data.best_sol.val = solution.val
-            h_data.best_sol.flow = solution.flow
-            h_data.best_sol.prod = solution.prod
+            for e in data.network.edges
+                h_data.best_sol.flow[e] = solution.flow[e]
+            end
+            for n in production_nodes(data)
+                h_data.best_sol.prod[n] = solution.prod[n]
+            end
         end
         if investment_cost(solution, data) < h_data.UB_inv
             h_data.UB_inv = investment_cost(solution, data)
@@ -92,8 +101,7 @@ end
 
 function counting_benders(master, subproblems, counting_SP,
     data, algo, best_solution, h_data, max_unsupplied; 
-    print_log=true, log_freq=1, invest_free=false, 
-    count_frequency="Opt", count_strategy="Rand")
+    print_log=true, log_freq=1, invest_free=false)
 
     separation_solution = BendersSolution(edge_dict(), prod_dict(), 0.0, 0.0)
     master_solution = BendersSolution(edge_dict(), prod_dict(), 0.0, 0.0)
@@ -197,28 +205,12 @@ function counting_benders(master, subproblems, counting_SP,
     h_data.benders_iteration = iteration
 end
 
-
-
-function run_heuristic(options, data, algo)
-
-    time_master_prob_creation = @elapsed master = create_master_benders_problem(data)
-    subproblems =  Vector{BendersSubroblem}(undef, data.S)
-    counting_SP =  Vector{BendersSubroblem}(undef, data.S)
-    time_subproblems_creation = @elapsed create_all_subproblems(subproblems, counting_SP; create_counting=true)
-
-    println("Time master problem creation : ", time_master_prob_creation)
-    println("Time subproblem creation     : ", time_subproblems_creation)
-    println()
-
-    # Instanciate heuristic data
-    h_data = HeuristicData(
-        0.0, 1e20, 0.0, options.unsupplied_tolerance, options.max_unsupplied,
-        BendersSolution(edge_dict(), prod_dict(), 1e20, 0.0), false,
-        0.0, 0.0, 0.0, 0
-    )
-
+function heuristic(master, subproblems, counting_SP, h_data, options, data, algo)
     # Feasibility check
-    t_feasibility_check = feasibility_check(master, subproblems, h_data, options, data)
+    print_feasibility_log = true
+    perturbation = 0.0
+    t_feasibility_check = feasibility_check(master, subproblems, h_data, 
+        options, data, print_feasibility_log, perturbation)
 
     iteration = 0
     # Initializing with stochastic solution
@@ -233,9 +225,8 @@ function run_heuristic(options, data, algo)
         # Solve
         benders_best_solution = BendersSolution(edge_dict(), prod_dict(), 1e20, 0.0)
         t_benders = @elapsed counting_benders(master, subproblems, counting_SP,
-                        data, algo, benders_best_solution, h_data, options.max_unsupplied; 
-                        print_log=false, log_freq=1, invest_free=false, 
-                        count_frequency="Opt", count_strategy="Rand")
+                data, algo, benders_best_solution, h_data, options.max_unsupplied; 
+                print_log=true, log_freq=1, invest_free=false)
         
         invest_cost = investment_cost(benders_best_solution, data) 
         benders_val = benders_best_solution.val
@@ -270,6 +261,34 @@ function run_heuristic(options, data, algo)
             exit()
         end
     end
+end
+
+
+
+function run_heuristic(options, data, algo)
+
+    time_master_prob_creation = @elapsed master = create_master_benders_problem(data)
+    subproblems =  Vector{BendersSubroblem}(undef, data.S)
+    counting_SP =  Vector{BendersSubroblem}(undef, data.S)
+    create_counting = false
+    if algo.heuristic_strategy == "Min"
+        create_counting = true
+    end
+    println("Create counting subproblems : ", create_counting)
+    time_subproblems_creation = @elapsed create_all_subproblems(subproblems, counting_SP; create_counting=create_counting)
+
+    println("Time master problem creation : ", time_master_prob_creation)
+    println("Time subproblem creation     : ", time_subproblems_creation)
+    println()
+
+    # Instanciate heuristic data
+    h_data = HeuristicData(
+        0.0, 1e20, 0.0, options.unsupplied_tolerance, options.max_unsupplied,
+        BendersSolution(edge_dict(), prod_dict(), 1e20, 0.0), false,
+        0.0, 0.0, 0.0, 0
+    )
+
+    heuristic(master, subproblems, counting_SP, h_data, options, data, algo)
 
     println()
     println("Solution found")
@@ -280,4 +299,70 @@ function run_heuristic(options, data, algo)
     print_solution(h_data.best_sol, data)
 
     return h_data.total_time
+end
+
+
+function bilevel_with_heuristic(options, data, algo)
+    time_master_prob_creation = @elapsed master = create_master_benders_problem(data)
+    subproblems =  Vector{BendersSubroblem}(undef, data.S)
+    counting_SP =  Vector{BendersSubroblem}(undef, data.S)
+    time_subproblems_creation = @elapsed create_all_subproblems(subproblems, counting_SP; create_counting=true)
+
+    println("Time master problem creation : ", time_master_prob_creation)
+    println("Time subproblem creation     : ", time_subproblems_creation)
+    println()
+
+    # Instanciate heuristic data
+    h_data = HeuristicData(
+        0.0, 1e20, 0.0, options.unsupplied_tolerance, options.max_unsupplied,
+        BendersSolution(edge_dict(), prod_dict(), 1e20, 0.0), false,
+        0.0, 0.0, 0.0, 0
+    )
+
+    heuristic(master, subproblems, counting_SP, h_data, options, data, algo)
+
+    println()
+    println("Solution found")
+    println("Best solution value = ", h_data.best_sol.val)
+    
+
+    println()
+    println("Creating bilevel problem")
+    t_creation = @elapsed bilev = create_bilevel_invest_problem(data, algo; 
+        unsupplied_tolerance = options.unsupplied_tolerance, 
+        max_unsupplied = options.max_unsupplied)
+    println("Time creation = ", t_creation)
+    println()
+
+    println("Setting cutoff to bilevel problem")
+    set_optimizer_attribute(bilev.model, "CPXPARAM_MIP_Tolerances_UpperCutoff", h_data.best_sol.val)
+    #for k in 1:20
+    #    val = 0.8 + (k/100)
+    #    set_optimizer_attribute(bilev.model, "CPXPARAM_MIP_Tolerances_UpperCutoff", val * h_data.best_sol.val)
+    #    t_solve = @elapsed solve(bilev; silent_mode=false)
+    #end
+
+
+
+    println()
+    println("Solving with fixed investment to heuristic solution")
+    for e in data.network.edges
+        fix(bilev.invest_flow[e], h_data.best_sol.flow[e]; force=true)
+    end
+    for n in production_nodes(data)
+        fix(bilev.invest_prod[n], h_data.best_sol.prod[n]; force=true)
+    end
+    t_solve = @elapsed solve(bilev; silent_mode=false)
+
+    println()
+    println("Unfixing investment vars")
+    println()
+
+    for e in data.network.edges
+        unfix(bilev.invest_flow[e])
+    end
+    for n in production_nodes(data)
+        unfix(bilev.invest_prod[n])
+    end
+    t_solve = @elapsed solve(bilev; silent_mode=false)
 end

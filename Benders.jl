@@ -123,6 +123,7 @@ end
 
 function create_all_subproblems(subproblems, counting_SP; create_counting=false)
     for s in 1:data.S
+        println("Creating SP ", s)
         subproblems[s] = create_benders_subproblem(data, s)
         if create_counting
             counting_SP[s] = create_benders_subproblem_with_counting(data, s, options.unsupplied_tolerance)
@@ -130,7 +131,7 @@ function create_all_subproblems(subproblems, counting_SP; create_counting=false)
     end
 end
 
-function create_mean_value_prob(data)
+function create_mean_value_prob(data; invest_free=false)
     model = Model(CPLEX.Optimizer)
     set_optimizer_attribute(model, "CPXPARAM_Threads", 1)
 
@@ -164,7 +165,7 @@ function create_mean_value_prob(data)
     constraint_flow_conservation_expextation(model, prod, flow, unsupplied, spilled, data)
     
     objective_mean_value_prob(model, invest_flow, invest_prod, 
-        unsupplied, prod, flow_abs, data)
+        unsupplied, prod, flow_abs, data; invest_free=invest_free)
     
     BendersSubroblem(model, invest_flow, invest_prod, flow, prod, unsupplied, spilled, undef, undef)
 end
@@ -372,10 +373,10 @@ function benders_sequential(master, subproblems, data, algo, best_solution;
 end
 
 
-function initialize_mean_value_solution(master, subproblems, best_solution, data)
+function initialize_mean_value_solution(master, subproblems, best_solution, data; invest_free=false)
     
     # 1. Define and solve mean_value_problem
-    mean_value_prob = create_mean_value_prob(data)
+    mean_value_prob = create_mean_value_prob(data; invest_free=invest_free)
     solve(mean_value_prob; silent_mode=true) 
 
     # 2. Set solution to initialize best_sol
@@ -483,7 +484,7 @@ function create_benders_subproblem_with_counting(data, s, tolerance)
             sum( data.scenario[s].unsupplied_cost * unsupplied[n,t] 
                 for n in 1:data.network.N ) +
             # production costs
-            sum( data.scenario[s].prod_cost[n][t] * prod[n,t] 
+            sum( data.scenario[s].prod_cost[n] * prod[n,t] 
                 for n in production_nodes(data)) +
             # flow cost
             sum( data.scenario[s].flow_cost[e] * flow_abs[e,t] 

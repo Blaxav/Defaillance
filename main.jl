@@ -61,12 +61,15 @@ if options.algorithm == "bilevel"
         unfix(bilev.invest_flow[e])
     end=#
     t_solve = @elapsed solve(bilev; silent_mode=false)
+
+    bilev_sol = BendersSolution(edge_dict(), prod_dict(), 1e20, 0.0)
+    get_master_solution(bilev, bilev_sol)
     
     println()
     println("############################")
     println("Solution")
     println("############################")
-    print_solution(bilev, data; null_tolerance=1e-6)
+    print_solution(bilev_sol, data; null_tolerance=1e-6)
 
     println()
     println("Creation problem time = ", t_creation)
@@ -85,8 +88,11 @@ elseif options.algorithm == "heuristic"
     
     total_time = @elapsed t_heuristic = run_heuristic(options, data, algo)
     println()
-    println("Solution time = ", t_heuristic)
-    println("Total time = ", total_time)
+    println("Solution time = ", total_time)
+
+elseif options.algorithm == "h-bilevel"
+
+    bilevel_with_heuristic(options, data, algo)
 
 else
     println("Unknown algortihm ", options.algorithm)

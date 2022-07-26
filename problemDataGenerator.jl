@@ -15,7 +15,8 @@ struct NetworkFlowProblemData
     demands::Matrix{Float64}
     has_production::Vector{Int}
     unsupplied_cost::Float64
-    prod_cost::Dict{Int,Vector{Float64}}
+    #prod_cost::Dict{Int,Vector{Float64}}
+    prod_cost::Dict{Int,Float64}
     flow_cost::Dict{Edge, Float64}
     flow_init::Dict{Edge, Int}
     grad_prod::Float64
@@ -46,7 +47,8 @@ function sample_network_data
     brief: Generates a random vector of NetworkFlowProblemData for each scenario
 """
 function sample_network_data(scenarios, network, time_steps, demand_range, 
-    prod_cost_range, unsupplied_cost, flow_cost_range, flow_init, grad_prod, has_production)
+    prod_cost_range, unsupplied_cost, flow_cost_range, flow_init, grad_prod, has_production, 
+    flow_cost_multiplier)
 
     data_flow = Vector{NetworkFlowProblemData}(undef, scenarios)
     for s in 1:scenarios
@@ -54,21 +56,20 @@ function sample_network_data(scenarios, network, time_steps, demand_range,
         demands = rand(demand_range, network.N, time_steps)
 
         # Sampling production nodes    
+        #prod_cost = Dict(zip(
+        #    [i for i in 1:network.N if has_production[i] == 1],
+        #    [rand(prod_cost_range, time_steps) for i in 1:sum(has_production)]
+        #    ))
+        
         prod_cost = Dict(zip(
             [i for i in 1:network.N if has_production[i] == 1],
-            [rand(prod_cost_range, time_steps) for i in 1:sum(has_production)]
+            [rand(prod_cost_range) for i in 1:sum(has_production)]
             ))
 
         flow_cost = Dict(zip(
             network.edges,
-            rand(flow_cost_range, network.n_edges)
+            flow_cost_multiplier * rand(flow_cost_range, network.n_edges)
             ))
-        
-        #=flow_init = Dict(zip(
-            network.edges,
-            rand(0:flow_init_max, network.n_edges)
-            ))
-        =#
 
         data_flow[s] = NetworkFlowProblemData(network, demands, 
             has_production, unsupplied_cost, prod_cost, flow_cost, 
@@ -86,7 +87,8 @@ end
 
 
 function investment_problem_data_generator(scenarios, network, time_steps, demand_range, 
-    prod_cost_range, unsupplied_cost, flow_cost_range, flow_init_max, grad_prod, invest_flow_range, invest_prod_range)
+    prod_cost_range, unsupplied_cost, flow_cost_range, flow_init_max, grad_prod, invest_flow_range, invest_prod_range,
+    flow_cost_multiplier)
 
     # Samplng probabilities
     proba = generate_probabilities(scenarios)
@@ -104,7 +106,7 @@ function investment_problem_data_generator(scenarios, network, time_steps, deman
 
     # Network flow data
     data_flow = sample_network_data(scenarios, network, time_steps, demand_range, 
-    prod_cost_range, unsupplied_cost, flow_cost_range, flow_init, grad_prod, has_production)
+    prod_cost_range, unsupplied_cost, flow_cost_range, flow_init, grad_prod, has_production, flow_cost_multiplier)
 
     # Sampling investment costs
     invest_flow_cost = Dict(zip(network.edges, rand(invest_flow_range, network.n_edges)))
@@ -124,7 +126,7 @@ function investment_problem_data_generator(options, network)
         options.scenarios, network, options.time_steps, options.demand_range, 
         options.prod_cost_range, options.unsupplied_cost, options.flow_cost_range, 
         options.flow_init_max, options.grad_prod, options.invest_flow_range, 
-        options.invest_prod_range)
+        options.invest_prod_range, options.flow_cost_multiplier)
 end
 
 

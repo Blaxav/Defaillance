@@ -11,6 +11,7 @@ mutable struct GlobalOptions
     prod_cost_range
     unsupplied_cost
     flow_cost_range
+    flow_cost_multiplier
     grad_prod
     invest_flow_range
     invest_prod_range
@@ -39,7 +40,7 @@ end
 function define_default_options()
     GlobalOptions(
         1, 100, 0, 1, 1, 
-        1:1, 1:1, 1000, 1:1,
+        1:1, 1:1, 1000, 1:1, 1,
         1.0, 1:1, 1:1, 0.0, 
         1e-3, 3, "benders", 
         "monocut", 0.5, 0.3, 1,
@@ -96,6 +97,8 @@ function parse_option_line(options, line)
             min_val = parse(Int64, split(value, ":")[1])
             max_val = parse(Int64, split(value, ":")[2])
             options.flow_cost_range = min_val:max_val
+        elseif keyword == "flow_cost_multiplier"
+            options.flow_cost_multiplier = parse(Float64, value)
         elseif keyword == "grad_prod"
             options.grad_prod = parse(Float64, value)
         elseif keyword == "invest_flow_range"
@@ -182,6 +185,7 @@ mutable struct Algorithm
 end
 
 function create_algo(options)
+    
     if options.algorithm == "benders"
         return create_benders(options.cut_aggregation, options.step_size, 
             options.stab_center_tol, options.init_mean_value_solution, 
@@ -191,6 +195,11 @@ function create_algo(options)
             primal_ub=options.primal_big_M, dual_ub=options.dual_big_M)
     elseif options.algorithm == "heuristic"
         return create_heuristic(options.cut_aggregation, options.step_size, 
+            options.stab_center_tol, options.init_mean_value_solution, 
+            options.heuristic_frequency, options.heuristic_strategy, 
+            options.time_limit)
+    elseif options.algorithm == "h-bilevel"
+        return create_bilevel_with_heuristic(options.cut_aggregation, options.step_size, 
             options.stab_center_tol, options.init_mean_value_solution, 
             options.heuristic_frequency, options.heuristic_strategy, 
             options.time_limit)
@@ -228,5 +237,18 @@ function create_heuristic(cut_aggregation, step_size, stab_center_tol,
     init_mean_value_solution, frequency, strategy, time_limit)
     
     return Algorithm("heuristic", any, cut_aggregation, step_size,
+        stab_center_tol, init_mean_value_solution, frequency, strategy, time_limit)
+end
+
+function create_bilevel_with_heuristic(cut_aggregation, step_size, stab_center_tol, 
+    init_mean_value_solution, frequency, strategy, time_limit)
+    
+    println("Warning : creating bilevel with SOS1 mode")
+    #return Algorithm("h-bilevel", 
+    #    BilevelJuMP.FortunyAmatMcCarlMode(primal_big_M = 8000, dual_big_M=5000), 
+    #    cut_aggregation, step_size, stab_center_tol, 
+    #    init_mean_value_solution, frequency, strategy, time_limit)
+
+    return Algorithm("h-bilevel", BilevelJuMP.SOS1Mode(), cut_aggregation, step_size,
         stab_center_tol, init_mean_value_solution, frequency, strategy, time_limit)
 end

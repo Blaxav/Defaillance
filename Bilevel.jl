@@ -107,7 +107,7 @@ function create_bilevel_invest_problem(data, algo; unsupplied_tolerance=1e-6, ma
                 sum( data.scenario[s].unsupplied_cost * unsupplied[s,n,t] 
                     for n in 1:data.network.N ) +
                 # production costs
-                sum( data.scenario[s].prod_cost[n][t] * prod[s,n,t] 
+                sum( data.scenario[s].prod_cost[n] * prod[s,n,t] 
                     for n in 1:data.network.N 
                     if data.scenario[s].has_production[n] == 1) +
                 # flow cost
@@ -133,7 +133,7 @@ function create_bilevel_invest_problem(data, algo; unsupplied_tolerance=1e-6, ma
                 sum( data.scenario[s].unsupplied_cost * unsupplied[s,n,t] 
                     for n in 1:data.network.N ) +
                 # production costs
-                sum( data.scenario[s].prod_cost[n][t] * prod[s,n,t] 
+                sum( data.scenario[s].prod_cost[n] * prod[s,n,t] 
                     for n in 1:data.network.N 
                     if data.scenario[s].has_production[n] == 1) +
                 # flow cost
