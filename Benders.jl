@@ -488,13 +488,14 @@ function create_benders_subproblem_with_counting(data, s, tolerance)
 
 
     # Variable saying if a node has unsupplied energy
-    @variable(model, has_unsupplied[i in 1:data.network.N, t in 1:data.T], Bin)
+    @variable(model, has_unsupplied[i in 1:data.network.N, t in 1:data.T], Bin, set_string_name = false)
 
     # Binary Variables behaviour
     @constraint(model, unsupplied_to_zero[n in 1:data.network.N, t in 1:data.T],
-        has_unsupplied[n,t] <= (1/tolerance)*unsupplied[n,t] )
+        has_unsupplied[n,t] <= (1/tolerance)*unsupplied[n,t], set_string_name = false )
     @constraint(model, unsupplied_to_one[n in 1:data.network.N, t in 1:data.T],
-        100*data.scenario[s].demands[n,t]*has_unsupplied[n,t] >= unsupplied[n,t] - tolerance )
+        100*data.scenario[s].demands[n,t]*has_unsupplied[n,t] >= unsupplied[n,t] - tolerance, 
+        set_string_name = false )
 
     @constraint(model, cost_constraint, 
         sum(
@@ -510,8 +511,8 @@ function create_benders_subproblem_with_counting(data, s, tolerance)
                 for e in data.network.edges )
             ) for t in 1:data.T
         )
-        <= 0
-    )
+        <= 0,
+        set_string_name = false)
 
     @objective(model, Min,
         # Sum on time steps

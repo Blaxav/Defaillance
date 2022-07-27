@@ -27,9 +27,12 @@ println()
 
 if options.algorithm == "bilevel"
 
+    println("Creating bilevel problem")
     t_creation = @elapsed bilev = create_bilevel_invest_problem(data, algo; 
         unsupplied_tolerance = options.unsupplied_tolerance, 
         max_unsupplied = options.max_unsupplied)
+    println("Creation time = ", t_creation)
+    println()
     
     #=fix(bilev.invest_prod[1], 382.0; force=true)
     fix(bilev.invest_prod[2], 2237.498; force=true)
@@ -72,7 +75,6 @@ if options.algorithm == "bilevel"
     print_solution(bilev_sol, data; null_tolerance=1e-6)
 
     println()
-    println("Creation problem time = ", t_creation)
     println("Solution time = ", t_solve)
 
 elseif options.algorithm == "stochastic"

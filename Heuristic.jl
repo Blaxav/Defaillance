@@ -30,6 +30,7 @@ function feasibility_check(master, subproblems, heuristic_data, options, data, p
     unsupplied_sol = zeros(Float64, data.network.N, data.T)
     total_unsupplied = counting_unsupplied_total(subproblems, options.unsupplied_tolerance, data, unsupplied_sol)
 
+
     println("Time feasilbility check = ", t_feasibility)
     if total_unsupplied > 0.0
         println("Feasibility checke failed")
@@ -76,6 +77,9 @@ function counting_unsupplied__solution(h_data, separation_solution, subproblems,
                 break
             end
         end
+        #if separation_solution.unsupplied <= options.max_unsupplied
+        #    println("Auxiliary problem succeed = ", separation_solution.unsupplied, "  rand sol was = ", rand_unsupplied_value)
+        #end
     else
         separation_solution.unsupplied = rand_unsupplied_value
     end

@@ -42,40 +42,42 @@ function create_bilevel_invest_problem(data, algo; unsupplied_tolerance=1e-6, ma
     invest_prod = variables_investment_production(Upper(model), data)
 
     # Flow variables
-    @variable(Lower(model), flow[s in 1:data.S, e in data.network.edges, t in 1:data.T])
-    @variable(Lower(model), 0 <= flow_abs[s in 1:data.S, e in data.network.edges, t in 1:data.T])
+    @variable(Lower(model), flow[s in 1:data.S, e in data.network.edges, t in 1:data.T], set_string_name = false)
+    @variable(Lower(model), 0 <= flow_abs[s in 1:data.S, e in data.network.edges, t in 1:data.T], set_string_name = false)
 
     # Production variables
     @variable(Lower(model), 0 <= prod[s in 1:data.S, n in 1:data.network.N, t in 1:data.T; 
-        data.scenario[s].has_production[n] == 1])
+        data.scenario[s].has_production[n] == 1], set_string_name = false)
     
     @constraint(Lower(model), prod_max[s in 1:data.S, n in 1:data.network.N, t in 1:data.T; 
         data.scenario[s].has_production[n] == 1],
-        prod[s,n,t] <= invest_prod[n])
+        prod[s,n,t] <= invest_prod[n], set_string_name = false)
     
     @constraint(Lower(model), grad_positive[s in 1:data.S, n in 1:data.network.N, t in 1:data.T; 
         data.has_production[n] == 1],
-        prod[s,n,t] <= (t > 1 ? prod[s,n,t-1] : prod[s,n,data.T]) + data.scenario[s].grad_prod*invest_prod[n] )
+        prod[s,n,t] <= (t > 1 ? prod[s,n,t-1] : prod[s,n,data.T]) + data.scenario[s].grad_prod*invest_prod[n],
+        set_string_name = false )
     @constraint(Lower(model), grad_negative[s in 1:data.S, n in 1:data.network.N, t in 1:data.T; 
         data.has_production[n] == 1],
-        prod[s,n,t] >= (t > 1 ? prod[s,n,t-1] : prod[s,n,data.T]) - data.scenario[s].grad_prod*invest_prod[n] )
+        prod[s,n,t] >= (t > 1 ? prod[s,n,t-1] : prod[s,n,data.T]) - data.scenario[s].grad_prod*invest_prod[n],
+        set_string_name = false )
 
     # Loss of load variables
-    @variable(Lower(model), 0 <= unsupplied[s in 1:data.S, i in 1:data.network.N, t in 1:data.T])
-    @variable(Lower(model), 0 <= spilled[s in 1:data.S, i in 1:data.network.N, t in 1:data.T])
+    @variable(Lower(model), 0 <= unsupplied[s in 1:data.S, i in 1:data.network.N, t in 1:data.T], set_string_name = false)
+    @variable(Lower(model), 0 <= spilled[s in 1:data.S, i in 1:data.network.N, t in 1:data.T], set_string_name = false)
 
     # Flow bounds
     @constraint(Lower(model), flow_max_positive[s in 1:data.S, e in data.network.edges, t in 1:data.T], 
-        flow[s,e,t] <= data.scenario[s].flow_init[e] + invest_flow[e])
+        flow[s,e,t] <= data.scenario[s].flow_init[e] + invest_flow[e], set_string_name = false)
     @constraint(Lower(model), flow_max_negative[s in 1:data.S, e in data.network.edges, t in 1:data.T], 
-        -(invest_flow[e] + data.scenario[s].flow_init[e]) <= flow[s,e,t])
+        -(invest_flow[e] + data.scenario[s].flow_init[e]) <= flow[s,e,t], set_string_name = false)
 
 
     # Absolute value of flow in cost
     @constraint(Lower(model), flow_abs_positive[s in 1:data.S, e in data.network.edges, t in 1:data.T], 
-        flow_abs[s,e,t] >= flow[s,e,t])
+        flow_abs[s,e,t] >= flow[s,e,t], set_string_name = false)
     @constraint(Lower(model), flow_abs_negative[s in 1:data.S, e in data.network.edges, t in 1:data.T], 
-        flow_abs[s,e,t] >= -flow[s,e,t])
+        flow_abs[s,e,t] >= -flow[s,e,t], set_string_name = false)
 
     
     #Flow conservation
@@ -83,18 +85,21 @@ function create_bilevel_invest_problem(data, algo; unsupplied_tolerance=1e-6, ma
         sum(flow[s,e,t] for e in data.network.edges if e.to == n) - 
         sum(flow[s,e,t] for e in data.network.edges if e.from == n) + 
         (data.scenario[s].has_production[n] == 1 ? prod[s,n,t] : 0) + 
-        unsupplied[s,n,t] - spilled[s,n,t] == data.scenario[s].demands[n,t]
-        )
+        unsupplied[s,n,t] - spilled[s,n,t] == data.scenario[s].demands[n,t],
+        set_string_name = false)
     
-    @variable(Upper(model), has_unsupplied[s in 1:data.S, i in 1:data.network.N, t in 1:data.T], Bin)
+    @variable(Upper(model), has_unsupplied[s in 1:data.S, i in 1:data.network.N, t in 1:data.T], Bin, 
+                    set_string_name = false)
 
     # Variables behaviour
     @constraint(Upper(model), unsupplied_to_zero[s in 1:data.S, n in 1:data.network.N, t in 1:data.T],
-        has_unsupplied[s,n,t] <= (1/unsupplied_tolerance)*unsupplied[s,n,t] )
+        has_unsupplied[s,n,t] <= (1/unsupplied_tolerance)*unsupplied[s,n,t], set_string_name = false )
     @constraint(Upper(model), unsupplied_to_one[s in 1:data.S, n in 1:data.network.N, t in 1:data.T],
-        100*data.scenario[s].demands[n,t]*has_unsupplied[s,n,t] >= unsupplied[s,n,t] - unsupplied_tolerance )
+        100*data.scenario[s].demands[n,t]*has_unsupplied[s,n,t] >= unsupplied[s,n,t] - unsupplied_tolerance, set_string_name = false )
     
-    @constraint(Upper(model), unsupplied_cnt, sum(data.probability .* sum( sum(has_unsupplied[:,n,t] for n = 1:data.network.N) for t in 1:data.T )) <= max_unsupplied )
+    @constraint(Upper(model), unsupplied_cnt, sum(data.probability .* sum( sum(has_unsupplied[:,n,t] 
+                    for n = 1:data.network.N) for t in 1:data.T )) <= max_unsupplied,
+                    set_string_name = false )
     
     @objective(Lower(model), Min,
         # Sum on scenarios
