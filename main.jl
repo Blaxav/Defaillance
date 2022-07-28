@@ -77,7 +77,13 @@ if options.algorithm == "bilevel"
     println()
     println("Solution time = ", t_solve)
 
-elseif options.algorithm == "stochastic"
+elseif options.algorithm == "HPR"
+
+    creation_time = @elapsed prob = create_HPR_bilevel(data, algo, 
+            options.unsupplied_tolerance, options.max_unsupplied)
+
+    solve(prob; silent_mode = false)
+
 elseif options.algorithm == "benders"
     
     total_time = @elapsed t_benders = run_benders(options, data, algo)

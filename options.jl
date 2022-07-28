@@ -21,6 +21,7 @@ mutable struct GlobalOptions
     max_unsupplied
 
     algorithm
+    optimality_gap
 
     cut_aggregation
     step_size
@@ -42,7 +43,7 @@ function define_default_options()
         1, 100, 0, 1, 1, 
         1:1, 1:1, 1000, 1:1, 1,
         1.0, 1:1, 1:1, 0.0, 
-        1e-3, 3, "benders", 
+        1e-3, 3, "benders", 1e-6,
         "monocut", 0.5, 0.3, 1,
         "Opt", "Rand","SOS1",
         1e3, 1e3, 60
@@ -120,6 +121,8 @@ function parse_option_line(options, line)
         # Algorithm options
         elseif keyword == "algorithm"
             options.algorithm = value
+        elseif keyword == "optimality_gap"
+            options.optimality_gap = parse(Float64, value)
         
         elseif keyword == "cut_aggregation"
             options.cut_aggregation = value
@@ -182,6 +185,7 @@ mutable struct Algorithm
     heuristic_strategy # Rand or Min, Rand: Solution given by solver, Min: best solution with auxiliary prob solving
 
     time_limit
+    optimality_gap
 end
 
 function create_algo(options)
@@ -189,7 +193,7 @@ function create_algo(options)
     if options.algorithm == "benders"
         return create_benders(options.cut_aggregation, options.step_size, 
             options.stab_center_tol, options.init_mean_value_solution, 
-            options.time_limit)
+            options.time_limit, options.optimality_gap)
     elseif options.algorithm == "bilevel"
         return create_bilevel(options.bilevel_mode, options.time_limit; 
             primal_ub=options.primal_big_M, dual_ub=options.dual_big_M)
@@ -197,29 +201,37 @@ function create_algo(options)
         return create_heuristic(options.cut_aggregation, options.step_size, 
             options.stab_center_tol, options.init_mean_value_solution, 
             options.heuristic_frequency, options.heuristic_strategy, 
-            options.time_limit)
+            options.time_limit, options.optimality_gap)
     elseif options.algorithm == "h-bilevel"
         return create_bilevel_with_heuristic(options.cut_aggregation, options.step_size, 
             options.stab_center_tol, options.init_mean_value_solution, 
             options.heuristic_frequency, options.heuristic_strategy, 
-            options.time_limit)
+            options.time_limit, options.optimality_gap)
+    
+    elseif options.algorithm == "HPR"
+        return create_HPR(options.time_limit)
     else
         println("Unknown algorithm ", options.algorithm)
         exit()
     end
 end
 
+
+function create_HPR(time_limit)
+    return Algorithm("HPR", any, any, any, any, any, any, any, time_limit, any)
+end
+
 function create_bilevel(mode, time_limit; primal_ub=1e3, dual_ub=1e3)
     if mode == "SOS1"
         return Algorithm("bilevel", BilevelJuMP.SOS1Mode(), 
-            any, any, any, any, any, any, time_limit)
+            any, any, any, any, any, any, time_limit, any)
     elseif mode == "Indicators"
         return Algorithm("bilevel", BilevelJuMP.IndicatorMode(), 
-            any, any, any, any, any, any, time_limit)
+            any, any, any, any, any, any, time_limit, any)
     elseif mode == "Big-M"
         return Algorithm("bilevel", BilevelJuMP.FortunyAmatMcCarlMode(
             primal_big_M = primal_ub, dual_big_M=dual_ub), 
-            any, any, any, any, any, any, time_limit)
+            any, any, any, any, any, any, time_limit, any)
     else
         println("Unknown bilevel mode ", mode)
         exit()
@@ -227,21 +239,21 @@ function create_bilevel(mode, time_limit; primal_ub=1e3, dual_ub=1e3)
 end
 
 function create_benders(cut_aggregation, step_size, stab_center_tol, 
-    init_mean_value_solution, time_limit)
+    init_mean_value_solution, time_limit, gap)
     
     return Algorithm("benders", any, cut_aggregation, step_size, 
-        stab_center_tol, init_mean_value_solution, any, any, time_limit)
+        stab_center_tol, init_mean_value_solution, any, any, time_limit, gap)
 end
 
 function create_heuristic(cut_aggregation, step_size, stab_center_tol, 
-    init_mean_value_solution, frequency, strategy, time_limit)
+    init_mean_value_solution, frequency, strategy, time_limit, gap)
     
     return Algorithm("heuristic", any, cut_aggregation, step_size,
-        stab_center_tol, init_mean_value_solution, frequency, strategy, time_limit)
+        stab_center_tol, init_mean_value_solution, frequency, strategy, time_limit, gap)
 end
 
 function create_bilevel_with_heuristic(cut_aggregation, step_size, stab_center_tol, 
-    init_mean_value_solution, frequency, strategy, time_limit)
+    init_mean_value_solution, frequency, strategy, time_limit, gap)
     
     println("Warning : creating bilevel with SOS1 mode")
     #return Algorithm("h-bilevel", 
@@ -250,5 +262,5 @@ function create_bilevel_with_heuristic(cut_aggregation, step_size, stab_center_t
     #    init_mean_value_solution, frequency, strategy, time_limit)
 
     return Algorithm("h-bilevel", BilevelJuMP.SOS1Mode(), cut_aggregation, step_size,
-        stab_center_tol, init_mean_value_solution, frequency, strategy, time_limit)
+        stab_center_tol, init_mean_value_solution, frequency, strategy, time_limit, gap)
 end

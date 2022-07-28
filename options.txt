@@ -1,19 +1,19 @@
 ####################################
 # Seed
 ####################################
-seed = 21
+seed = 10
 
 ####################################
 # Graph options
 ####################################
-N = 30
+N = 10
 graph_density = 15
 
 ####################################
 # Problem datas
 ####################################
-scenarios           = 50
-time_steps          = 168
+scenarios           = 3
+time_steps          = 5
 
 demand_range        = 50:400
 prod_cost_range     = 20:80
@@ -31,13 +31,14 @@ max_unsupplied              = 3
 ####################################
 # Algorithm
 ####################################
-algorithm                   = bilevel
+algorithm                   = heuristic
+optimality_gap              = 1e-9
 cut_aggregation             = multicut
 step_size                   = 0.5
-stab_center_tol             = 0.1
+stab_center_tol             = 0.0
 init_mean_value_solution    = 0
 
-heuristic_frequency         = Opt
+heuristic_frequency         = All
 heuristic_strategy          = Min
 bilevel_mode                = SOS1
 primal_big_M                = 8000

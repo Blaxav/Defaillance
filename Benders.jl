@@ -354,7 +354,7 @@ function benders_sequential(master, subproblems, data, algo, best_solution;
         update_best_solution(best_solution, separation_solution, algo, LB)
         
         # Stopping criterion
-        if best_solution.val - LB <= 1e-6*best_solution.val
+        if best_solution.val - LB <= algo.optimality_gap * best_solution.val
             stop = true
         end
 

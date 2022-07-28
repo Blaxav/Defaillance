@@ -161,7 +161,7 @@ function counting_benders(master, subproblems, counting_SP,
         update_best_solution(best_solution, separation_solution, algo, LB)
         
         # Stopping criterion
-        if best_solution.val - LB <= 1e-6*best_solution.val
+        if best_solution.val - LB <= algo.optimality_gap * best_solution.val
             stop = true
         end
 
@@ -257,6 +257,9 @@ function heuristic(master, subproblems, counting_SP, h_data, options, data, algo
         h_data.invest_rhs = h_level * h_data.UB_inv + (1-h_level) * h_data.LB_inv
         if h_data.UB_inv / h_data.LB_inv > 100
             h_data.invest_rhs = 10*h_data.LB_inv
+            if h_data.invest_rhs == 0.0
+                h_data.invest_rhs = 0.1 * h_data.UB_inv
+            end
         end
         set_normalized_rhs(master.heuristic_constraint, h_data.invest_rhs)
 
