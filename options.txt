@@ -1,25 +1,25 @@
 ####################################
 # Seed
 ####################################
-seed = 10
+seed = 21
 
 ####################################
 # Graph options
 ####################################
 N = 10
-graph_density = 15
+graph_density = 30
 
 ####################################
 # Problem datas
 ####################################
-scenarios           = 3
+scenarios           = 5
 time_steps          = 5
 
 demand_range        = 50:400
 prod_cost_range     = 20:80
 unsupplied_cost     = 1000
 flow_cost_range     = 1:1
-flow_cost_multiplier = 5.0
+flow_cost_multiplier = 1.0
 grad_prod           = 0.3
 invest_flow_range   = 1000:8000
 invest_prod_range   = 1000:8000
@@ -32,14 +32,14 @@ max_unsupplied              = 3
 # Algorithm
 ####################################
 algorithm                   = heuristic
-optimality_gap              = 1e-9
+optimality_gap              = 1e-4
 cut_aggregation             = multicut
 step_size                   = 0.5
 stab_center_tol             = 0.0
 init_mean_value_solution    = 0
 
 heuristic_frequency         = All
-heuristic_strategy          = Min
+heuristic_strategy          = Rand
 bilevel_mode                = SOS1
 primal_big_M                = 8000
 dual_big_M                  = 5000
