@@ -54,6 +54,7 @@ Returns:
     Vector{Tuple{Int, Int}} of integer positions
 """
 function sample_positions(N; gridRatio=1.5, proportion=0.005)
+
     Xmax = sqrt(gridRatio*N/proportion)
     Ymax = sqrt(N/(gridRatio*proportion))
 
@@ -215,13 +216,33 @@ Args:
 Returns:
     postitions, edges
 """
-function create_network(N, graph_density, seed; gridRatio = 1.5, proportion=0.005, drawGraph = true, plotGraph = false)
+function create_network(N, graph_density, seed; gridRatio = 1.5, proportion = 0.01, drawGraph = true, plotGraph = false)
     
     seed >= 0 ? Random.seed!(seed) : nothing
 
     # Sample positions of the nodes on a map
-    positions, distances = sample_positions(N)
+    positions, distances = sample_positions(N; gridRatio = gridRatio, proportion = proportion)
     edges = sample_edges_to_connexity(N, positions, distances)
+
+    # Forcing to draw the initial graph
+    #graph_plot_final = plot(positions, seriestype = :scatter, showaxis = false, grid = false, ticks = false, legend = false)
+    #for e in edges
+    #    plot!([positions[e.from][1], positions[e.to][1]], [positions[e.from][2], positions[e.to][2]])
+    #end
+    #savefig(graph_plot_final, "graph_init_N30.pdf")
+
+    #for graph_density in [15,10,8,6]
+    #    remove_edge_to_density!(N, edges, graph_density)
+
+        # Forcing to draw the initial graph
+    #    graph_plot_final = plot(positions, seriestype = :scatter, showaxis = false, grid = false, ticks = false, legend = false)
+    #    for e in edges
+    #        plot!([positions[e.from][1], positions[e.to][1]], [positions[e.from][2], positions[e.to][2]])
+    #    end
+    #    savefig(graph_plot_final, "graph_final_N30_dens" * string(graph_density) * ".pdf")
+    #end
+    #exit()
+
     remove_edge_to_density!(N, edges, graph_density)
 
     if drawGraph == true || plotGraph == true

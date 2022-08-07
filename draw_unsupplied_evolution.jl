@@ -111,7 +111,7 @@ function initial_heuristic(h_data, master, subproblems, counting_SP, data, algo)
     return min_value
 end
 
-function compute_unsupplied_evolution(vect_invest, vect_rand, vect_min, vect_max, 
+function compute_unsupplied_evolution(vect_invest, results, 
     master,subproblems, counting_SP, h_data, data, algo, options)
 
     unsupplied_variables = zeros(Float64, data.network.N, data.T)
@@ -162,15 +162,16 @@ function compute_unsupplied_evolution(vect_invest, vect_rand, vect_min, vect_max
             solve(counting_SP[s]; silent_mode=true)
             max_unsupplied += data.probability[s] * get_objective_value(counting_SP[s])
         end
-        @printf("%-10i%-15.3e%-15.3f%-15.3f%-15.3f\n", iteration, invest_val, min_unsupplied, rand_unsupplied, max_unsupplied)
+        @printf("%-10i%-15.3e%-15.3f%-15.3f%-15.3f%15.3e\n", iteration, invest_val, min_unsupplied, rand_unsupplied, max_unsupplied, benders_best_solution.val)
 
         #if first_reached == 0.0 && min_unsupplied <= 3.0
         #    first_reached = invest_val
         #end
 
-        push!(vect_rand, rand_unsupplied)
-        push!(vect_min, min_unsupplied)
-        push!(vect_max, max_unsupplied)
+        push!(results, Unsupplied(invest_val, min_unsupplied, rand_unsupplied, max_unsupplied))
+        #push!(vect_rand, rand_unsupplied)
+        #push!(vect_min, min_unsupplied)
+        #push!(vect_max, max_unsupplied)
     end
 end
 
@@ -211,7 +212,7 @@ function main()
     
     n_samples = 500
     coef_high = 1.05
-    proba = 0.01
+    proba = 0.05
     println("Sampling ", n_samples, " random investments")
     println("Computing standard deviation such that the probability to be higher than ", coef_high, " times the expected value is lower than ", proba)
     println("")
@@ -224,38 +225,53 @@ function main()
     println()
     
     
-    sampled_invest = sort(rand(td, n_samples))
+    sampled_invest = rand(td, n_samples)
     
     #vect_invest = sampled_invest
 
     # Adding a linear sample from min to max
-    N = 100
+    N = -1
     vect_invest = [min_value + (k/N)*(1.3*mean - min_value) for k in 0:N]
-    vect_invest = sort([vect_invest; sampled_invest])
+    vect_invest = [sampled_invest; vect_invest]
 
-    
-
-    rand_unsupplied = 0.0
-    min_unsupplied = 0.0
-    max_unsupplied = 0.0
+    sort_samples = false
+    if sort_samples
+        sort!(vect_invest)
+    end
 
     vect_min    = Vector{Float64}()
     vect_rand   = Vector{Float64}()
     vect_max    = Vector{Float64}()
-    compute_unsupplied_evolution(vect_invest, vect_rand, vect_min, vect_max, 
+
+    results = Vector{Unsupplied}()
+
+    compute_unsupplied_evolution(vect_invest, results, 
         master,subproblems, counting_SP, h_data, data, algo, options)
 
+    sort!(results, by = v -> v.invest)
     
-    graph_plot_final = plot(vect_invest, vect_rand, labels="Random")
-    plot!(vect_invest, vect_min, labels="Minimum")
-    plot!(vect_invest, vect_max, labels="Maximum")
-    
+    y_ticks = [1, 2, 3, 4, 5, 6,7,8,9,10]
+    x_ticks = []
+
+    graph_plot_final = plot([r.invest for r in results], [r.rand for r in results], labels="Random", yticks=y_ticks)
+    plot!([r.invest for r in results], [r.min for r in results], labels="Minimum")
+    plot!([r.invest for r in results], [r.max for r in results], labels="Maximum")
+    plot!(
+        xlims=(1.5e7,1.8e7),
+        xticks = ([1.5e7, 1.55e7, 1.6e7, 1.65e7, 1.7e7, 1.75e7], string.([1.5, 1.55, 1.6, 1.65, 1.7, 1.75]))
+        )
+
     display(graph_plot_final)
     println("Press a key to continue")
     readline()
 end
 
 
+
+
+#################################################
+# Call Main function
+#################################################
 options_path = ARGS[1]
 options = read_option_file(options_path)
 print_options(options)
@@ -266,19 +282,12 @@ println("Unsupplied evolution")
 println()
 
 
-
-#################################################
-# Call Main function
-#################################################
-time_graph = @elapsed network = create_network(options, plotGraph = false, drawGraph = false)
+time_graph = @elapsed network = create_network(options, plotGraph = true, drawGraph = false)
 #seed >= 0 ? Random.seed!(seed) : nothing
 time_data = @elapsed data = investment_problem_data_generator(options, network)
 println()
 println("Graph generation time = ", time_graph)
 println("Problem data generation time = ", time_data)
 println()
-
-
-
 
 main()

@@ -32,7 +32,7 @@ max_unsupplied              = 3
 # Algorithm
 ####################################
 algorithm                   = heuristic
-optimality_gap              = 1e-4
+optimality_gap              = 1e-10
 cut_aggregation             = multicut
 step_size                   = 0.5
 stab_center_tol             = 0.0
@@ -41,7 +41,7 @@ init_mean_value_solution    = 0
 heuristic_frequency         = All
 heuristic_strategy          = Rand
 bilevel_mode                = SOS1
-primal_big_M                = 8000
-dual_big_M                  = 5000
+primal_big_M                = 500
+dual_big_M                  = 1000
 
 time_limit                  = 21600
