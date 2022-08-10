@@ -32,7 +32,7 @@ max_unsupplied              = 3
 # Algorithm
 ####################################
 algorithm                   = heuristic
-optimality_gap              = 1e-10
+optimality_gap              = 1e-4
 cut_aggregation             = multicut
 step_size                   = 0.5
 stab_center_tol             = 0.0

@@ -145,8 +145,8 @@ function compute_unsupplied_evolution(vect_invest, results,
         # Solve auxiliary SP
         min_unsupplied = 0.0
         max_unsupplied = 0.0
-        absolute_perturbation = 1e-6
-        relative_perturbation = 1e-8
+        absolute_perturbation = 0
+        relative_perturbation = 1e-10
         fix_first_stage_candidate(counting_SP, benders_best_solution, data)
         for s in 1:data.S
             opt_val = get_objective_value(subproblems[s])
@@ -212,7 +212,7 @@ function main()
     
     n_samples = 500
     coef_high = 1.05
-    proba = 0.05
+    proba = 0.01
     println("Sampling ", n_samples, " random investments")
     println("Computing standard deviation such that the probability to be higher than ", coef_high, " times the expected value is lower than ", proba)
     println("")
@@ -250,16 +250,17 @@ function main()
 
     sort!(results, by = v -> v.invest)
     
-    y_ticks = [1, 2, 3, 4, 5, 6,7,8,9,10]
+    y_ticks = 0:30
     x_ticks = []
 
-    graph_plot_final = plot([r.invest for r in results], [r.rand for r in results], labels="Random", yticks=y_ticks)
+    graph_plot_final = plot([r.invest for r in results], [r.max for r in results], labels="Maximum", yticks = y_ticks)
+    plot!([r.invest for r in results], [r.rand for r in results], labels="Random")
     plot!([r.invest for r in results], [r.min for r in results], labels="Minimum")
-    plot!([r.invest for r in results], [r.max for r in results], labels="Maximum")
-    plot!(
-        xlims=(1.5e7,1.8e7),
-        xticks = ([1.5e7, 1.55e7, 1.6e7, 1.65e7, 1.7e7, 1.75e7], string.([1.5, 1.55, 1.6, 1.65, 1.7, 1.75]))
-        )
+    
+    #plot!(
+    #    xlims=(1.67e7,1.88e7),
+    #    xticks = ([1.7e7, 1.75e7, 1.8e7, 1.85e7], string.([1.7, 1.75, 1.8, 1.85]))
+    #    )
 
     display(graph_plot_final)
     println("Press a key to continue")
@@ -282,7 +283,7 @@ println("Unsupplied evolution")
 println()
 
 
-time_graph = @elapsed network = create_network(options, plotGraph = true, drawGraph = false)
+time_graph = @elapsed network = create_network(options, plotGraph = false, drawGraph = false)
 #seed >= 0 ? Random.seed!(seed) : nothing
 time_data = @elapsed data = investment_problem_data_generator(options, network)
 println()

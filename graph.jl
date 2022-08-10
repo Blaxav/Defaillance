@@ -169,6 +169,7 @@ function remove_edge_to_density!(N, edges, recquired_density; max_try=100)
     
     successive_fail = 0
     current_density = 100*2*length(edges) / (N*(N-1))
+    println("Initial graph density = ", current_density)
     while current_density > recquired_density
         
         successive_fail = 0
